@@ -85,7 +85,7 @@ Phase 6 hardening:
   not exist, too many targets, another tenant's device, smuggled arguments, a made-up specialist) must leave nothing
   but one PLANNED change that the hijacked account cannot approve and another tenant cannot see. Add every new attack
   to the corpus.
-- **Evals** (`evals/cases.yaml`, `python -m orchestrator eval evals/cases.yaml`): prompts with the capabilities a good
+- **Evals** (`evals/cases.yaml` and each skill's `evals.yaml`, `python -m orchestrator eval`): prompts with the capabilities a good
   answer must call and must never touch, run against the configured model. Each case gets a new `eval-*` tenant and
   canned results, so no device or cloud is reached; point it at a scratch database.
 - **More than one copy**: web processes share the sign-in lockout through the database, schedulers claim each
@@ -110,7 +110,7 @@ After the roadmap, the plan's remaining controls:
   or the directory; the first sign-in shows a key to enrol. A code counts once, five wrong ones end the session, and
   `mfa-reset TENANT USER` forgets a lost phone.
 - **Directory sign-in** (OpenID Connect: Entra ID, Okta, Keycloak and the like): `oidc-set TENANT ISSUER CLIENT_ID
-  SECRET_ENV [CLAIM]`, the client secret in that environment variable (`deploy/oidc.env`), and
+  SECRET_ENV [CLAIM]`, the client secret in that environment variable (`deploy/secrets.env`), and
   `ORCH_PUBLIC_URL/oidc/callback` registered as the redirect URI. The user must already exist in the tenant (matched
   on `preferred_username` unless another claim is named); the role stays the tenant's.
 - **Break-glass**: a tenant administrator (not the requester) can approve a change alone with a reason; it may run
@@ -124,6 +124,17 @@ After the roadmap, the plan's remaining controls:
 - **Steps and evidence**: each answer on the page opens its steps from the ledger; a finished change exports its
   evidence (request, plan, approvals, run, ledger rows, chain state) as JSON for an auditor.
 - **CEF**: `ORCH_SIEM_FORMAT=cef` sends ArcSight CEF instead of JSON.
+- **A tenant's own executors and model**: `route-set TENANT ansible|tofu|model URL SECRET_ENV [MODEL]` binds an
+  executor on that tenant's network segment, or a model endpoint (for example a local model for device data that must
+  not leave), to one tenant; the secret stays in the named environment variable (`deploy/secrets.env`).
+- **Triggers**: `trigger-add TENANT RECIPE USER` prints a secret address; another system (a SolarWinds alert action,
+  a ServiceNow business rule) posts JSON there and the recipe runs as USER with its placeholders from the JSON's
+  top-level fields, under the same policy, limits and change path as any request.
+- **The customer's own MCP servers**, read only: manifests in `ORCH_MCP_PLUGINS` (`deploy/mcp/`), described in
+  `orchestrator/mcp.py`. Capabilities are `mcp.NAME.<...>`, bound to the tenants the manifest names.
+- **Skill evals**: a skill folder may hold `evals.yaml`; `python -m orchestrator eval` runs them with `evals/cases.yaml`.
+- **CI**: `.github/workflows/test.yml` runs the suite on a self-hosted runner labelled `orchestrator`.
+- **Decision records**: [`docs/decisions/`](docs/decisions/README.md).
 
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
 capability, device names and, for a playbook, its name and variables. A playbook reads its variables as

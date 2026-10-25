@@ -2,8 +2,6 @@ import json
 
 from orchestrator.plugins import post_job
 
-# shortcut: one cloud executor per installation (ORCH_TOFU_URL); per-tenant executors come with tenant settings.
-
 
 def list_modules(conn):
     return post_job("ORCH_TOFU", {"capability": "cloud.modules.list"}, 30)["modules"]

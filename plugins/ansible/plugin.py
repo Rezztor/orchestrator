@@ -1,7 +1,5 @@
 from orchestrator.plugins import known_devices as known, post_job
 
-# shortcut: one executor per installation (ORCH_ANSIBLE_URL); binding an executor to each tenant comes with tenant settings.
-
 
 def job(body, timeout):
     return post_job("ORCH_ANSIBLE", body, timeout)

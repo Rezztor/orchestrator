@@ -19,7 +19,6 @@ import time
 import urllib.parse
 import urllib.request
 
-import psycopg
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
@@ -135,7 +134,7 @@ def finish(state, code, browser):
                                  "make_interval(mins => %s) RETURNING *", (auth.token_hash(state), LOGIN_MINUTES)
                                  ).fetchone()
             cfg = conn.execute("SELECT * FROM oidc").fetchone()
-    except psycopg.Error:  # a forged state names no tenant, or one that is not a UUID
+    except ValueError:  # a forged state does not start with a tenant id
         login = None
     if (login is None or cfg is None
             or not secrets.compare_digest(login["browser_hash"], auth.token_hash(browser or ""))):

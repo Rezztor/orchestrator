@@ -1,0 +1,32 @@
+# The test suite on Rezztor's own runner (GitHub-hosted runners are not used). The runner needs Docker for the
+# PostgreSQL service and Python 3.12 or newer; register it on the repository with the label "orchestrator".
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, orchestrator]
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+        env:
+          POSTGRES_USER: owner
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: orch
+        ports: ["55440:5432"]
+        options: --health-cmd "pg_isready -U owner" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt -r requirements.dev.txt
+      - name: Test
+        env:
+          ORCH_TEST_DB_URL: postgresql://owner:ci-only-password@127.0.0.1:55440/orch
+        run: .venv/bin/pytest -q

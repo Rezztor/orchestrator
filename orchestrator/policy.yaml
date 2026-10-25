@@ -2,9 +2,9 @@
 # anything either denies is denied, each limit is the lower of the two, each approval count the higher, and a change
 # runs only when every change window that is set is open.
 roles:  # capability patterns each role may use
-  viewer: [inventory.*, solarwinds.*, skills.read, agents.*]
-  operator: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*]
-  approver: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*]
+  viewer: [inventory.*, solarwinds.*, skills.read, agents.*, mcp.*]
+  operator: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*, mcp.*]
+  approver: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*, mcp.*]
   tenant-admin: ["*"]
 deny: []  # capability patterns nobody may use
 approvals:  # people who must approve a change, by risk class; never the person who asked for it

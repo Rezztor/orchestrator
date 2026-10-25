@@ -191,6 +191,28 @@ CREATE TABLE IF NOT EXISTS oidc_logins (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- A tenant's own executors and model (an executor bound to one tenant and its network segment). The secret stays in
+-- the environment, named here.
+CREATE TABLE IF NOT EXISTS routes (
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    kind text NOT NULL CHECK (kind IN ('ansible', 'tofu', 'model')),
+    url text NOT NULL,
+    secret_env text,
+    model text,
+    ca text,
+    PRIMARY KEY (tenant_id, kind)
+);
+
+-- A recipe another system can start by posting JSON to /hooks/TENANT.SECRET; only the secret's hash is kept.
+CREATE TABLE IF NOT EXISTS triggers (
+    token_hash text PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    recipe text NOT NULL,
+    run_as text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Failed sign-ins by the names typed, shared by every web process. No tenant column: most attempts name none.
 CREATE TABLE IF NOT EXISTS sign_in_failures (
     tenant_name text NOT NULL,
@@ -242,7 +264,7 @@ DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch', 'changes',
-                            'approvals', 'skills', 'recipes', 'schedules', 'webhooks', 'oidc', 'oidc_logins'] LOOP
+                            'approvals', 'skills', 'recipes', 'schedules', 'webhooks', 'oidc', 'oidc_logins', 'routes', 'triggers'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -290,7 +312,7 @@ GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_sch
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes, skills, recipes,
-    schedules, webhooks, sign_in_failures, oidc, oidc_logins TO orch_app;
+    schedules, webhooks, sign_in_failures, oidc, oidc_logins, routes, triggers TO orch_app;
 GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;
