@@ -1,7 +1,9 @@
 """Plugin host: reads each plugin's manifest and runs only the capabilities it declares.
 
 A plugin is a folder under plugins/ with plugin.yaml and plugin.py. The manifest is the contract: a capability that
-is not in it does not exist, and its `params` schema is checked before the handler runs.
+is not in it does not exist, and its `params` schema is checked before the handler runs. A change capability's
+`handler` is its dry run, returning {"digest", "rollback", "targets", "hosts"}; its `apply` handler takes the
+approved digest and the same arguments (see changes.py).
 """
 import importlib.util
 from pathlib import Path
@@ -27,9 +29,10 @@ def load(plugin_dir=PLUGIN_DIR):
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
         for cap in spec["capabilities"]:
-            if cap["kind"] not in ("read", "change"):
-                raise ValueError(f"{manifest}: {cap['id']} has kind {cap['kind']!r}")
-            caps[cap["id"]] = {**cap, "plugin": spec["name"], "handler": getattr(module, cap["handler"])}
+            if cap["kind"] not in ("read", "change") or (cap["kind"] == "change") != ("apply" in cap):
+                raise ValueError(f"{manifest}: {cap['id']} must be a read, or a change with an apply handler")
+            caps[cap["id"]] = {**cap, "plugin": spec["name"], "handler": getattr(module, cap["handler"]),
+                               **({"apply": getattr(module, cap["apply"])} if "apply" in cap else {})}
     return caps
 
 

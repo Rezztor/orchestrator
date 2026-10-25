@@ -5,6 +5,7 @@
   user-add TENANT_ID NAME ROLE                   tenant-admin, approver, operator or viewer
   set-password TENANT_ID USER                    asks for the password
   device-add TENANT_ID NAME ADDRESS PLATFORM [SITE]
+  device-critical TENANT_ID NAME yes|no          a change to a critical device is one risk class higher
   ask TENANT_ID USER PROMPT
   audit-verify TENANT_ID
   policy-set TENANT_ID FILE                      the tenant's policy (YAML); it can only narrow the shipped one
@@ -41,6 +42,13 @@ def main(argv):
                              "VALUES (current_setting('app.tenant_id')::uuid, %s, %s, %s, %s)",
                              (name, address, platform, site[0] if site else ""))
                 db.audit(conn, "cli", "device.added", {"device": name})
+        case ["device-critical", tenant_id, name, ("yes" | "no") as critical]:
+            with db.tenant(tenant_id) as conn:
+                if not conn.execute("UPDATE devices SET critical = %s WHERE name = %s",
+                                    (critical == "yes", name)).rowcount:
+                    print(f"no device {name!r}", file=sys.stderr)
+                    return 1
+                db.audit(conn, "cli", "device.critical", {"device": name, "critical": critical == "yes"})
         case ["ask", tenant_id, user, prompt]:
             request_id, state, answer = loop.run(tenant_id, user, prompt)
             print(f"{state} {request_id}\n{answer}")
@@ -57,7 +65,7 @@ def main(argv):
                 conn.execute("INSERT INTO policies (tenant_id, document, set_by) "
                              "VALUES (current_setting('app.tenant_id')::uuid, %s, 'cli') ON CONFLICT (tenant_id) "
                              "DO UPDATE SET document = EXCLUDED.document, set_by = 'cli', set_at = now()", (text,))
-                db.audit(conn, "cli", "policy.set", {"digest": loop.digest(text)})
+                db.audit(conn, "cli", "policy.set", {"digest": db.digest(text)})
         case ["policy-show", tenant_id]:
             with db.tenant(tenant_id) as conn:
                 print(json.dumps(policy.for_tenant(conn), indent=2))

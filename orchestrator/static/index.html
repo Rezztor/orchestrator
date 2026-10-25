@@ -26,6 +26,10 @@
       <textarea id="prompt" rows="3" maxlength="8000" placeholder="Ask about your infrastructure, for example: which devices are in Colombo?" required></textarea>
       <button type="submit">Ask</button>
     </form>
+    <h2>Changes</h2>
+    <p class="muted">The agent only proposes. A change runs after the people its risk needs have approved the plan they were shown.</p>
+    <p id="change-error" class="error" role="alert"></p>
+    <ol id="changes" aria-live="polite"></ol>
   </section>
 </main>
 </body>

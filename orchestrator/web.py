@@ -8,11 +8,13 @@ python -m orchestrator.web
 import json
 import os
 import ssl
+import threading
+import uuid
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import auth, db, loop
+from . import auth, changes, db, loop, plugins, policy
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
           "/app.css": ("app.css", "text/css")}
@@ -48,7 +50,13 @@ class Handler(BaseHTTPRequestHandler):
             if not me:
                 return self.send(401, {"error": "sign in"})
             with db.tenant(me["tenant_id"]) as conn:
-                return self.send(200, {**me, "stopped": loop.stopped(conn)})
+                return self.send(200, {**me, "stopped": policy.stopped(conn)})
+        if self.path == "/api/changes":
+            me = auth.session(self.token())
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            with db.tenant(me["tenant_id"]) as conn:
+                return self.send(200, {"changes": changes.listing(conn)})
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -97,7 +105,36 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(400, {"error": "say why you are stopping agent work"})
             with db.tenant(me["tenant_id"]) as conn:
                 loop.set_kill_switch(conn, me["user"], reason.strip()[:500] if body.get("stop") is True else None)
-                return self.send(200, {"stopped": loop.stopped(conn)})
+                return self.send(200, {"stopped": policy.stopped(conn)})
+        if self.path in ("/api/changes/decide", "/api/changes/run"):
+            me = auth.session(self.token())
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            try:
+                change_id = uuid.UUID(str(body.get("change")))
+            except ValueError:
+                return self.send(400, {"error": "change must be a change id"})
+            try:
+                if self.path == "/api/changes/run":
+                    change = changes.start(me["tenant_id"], me["user"], change_id)
+                    # the executor can take many minutes; the page polls /api/changes for the outcome
+                    threading.Thread(target=changes.finish, args=(me["tenant_id"], change, plugins.load()),
+                                     daemon=True).start()
+                    return self.send(202, {"state": "EXECUTING"})
+                approve, reason = body.get("approve"), body.get("reason")
+                if not isinstance(approve, bool) or not isinstance(body.get("digest"), str):
+                    return self.send(400, {"error": "approve (true or false) and the plan's digest are required"})
+                if not approve and not (isinstance(reason, str) and reason.strip()):
+                    return self.send(400, {"error": "say why you are rejecting the change"})
+                state = changes.decide(me["tenant_id"], me["user"], change_id, body["digest"], approve,
+                                       reason.strip()[:500] if isinstance(reason, str) and reason.strip() else None)
+                return self.send(200, {"state": state})
+            except PermissionError as exc:
+                return self.send(403, {"error": str(exc)})
+            except LookupError as exc:
+                return self.send(404, {"error": str(exc)})
+            except plugins.Refused as exc:
+                return self.send(409, {"error": str(exc)})
         self.send(404, {"error": "not found"})
 
 

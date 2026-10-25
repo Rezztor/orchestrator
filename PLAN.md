@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** accepted 2026-10-25; phase 1 in progress · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phases 1–2 merged, phase 3 (Ansible change path) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 
