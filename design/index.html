@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rezztor Orchestrator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, diagrams break out wider; planes colour-coded the same way in every figure */
+:root {
+  --bg: #f5f7f7;
+  --surface: #ffffff;
+  --fg: #16201f;
+  --muted: #56625f;
+  --line: #d3dbd9;
+  --accent: #0d6b66;      /* Rezztor deep teal */
+  --accent-soft: #dceeec;
+  --gate: #a35a00;        /* human approval */
+  --gate-soft: #f6e8d4;
+  --deny: #b3261e;
+  --deny-soft: #f7dedb;
+  --exec: #3b4f8a;        /* execution plane, no model */
+  --exec-soft: #e1e6f4;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1514; --surface: #161e1d; --fg: #e3ebe9; --muted: #9aa8a5; --line: #2a3634;
+    --accent: #4fc2b9; --accent-soft: #163331; --gate: #f0a64a; --gate-soft: #3a2a14;
+    --deny: #f28b82; --deny-soft: #3d1c1a; --exec: #9fb2ef; --exec-soft: #1d2440;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1514; --surface: #161e1d; --fg: #e3ebe9; --muted: #9aa8a5; --line: #2a3634;
+  --accent: #4fc2b9; --accent-soft: #163331; --gate: #f0a64a; --gate-soft: #3a2a14;
+  --deny: #f28b82; --deny-soft: #3d1c1a; --exec: #9fb2ef; --exec-soft: #1d2440;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.prose { max-width: 70ch; }
+header { display: grid; gap: 8px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 600 clamp(36px, 6vw, 56px)/1.05 var(--display); margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font: 600 28px/1.2 var(--display); margin: 0 0 12px; text-wrap: balance; }
+h3 { font: 600 18px/1.3 var(--display); margin: 0 0 6px; }
+.lede { font-size: 19px; color: var(--muted); margin: 0; max-width: 64ch; }
+.meta { font: 13px/1.5 var(--mono); color: var(--muted); }
+section { padding-top: 48px; display: grid; gap: 16px; }
+p { margin: 0; }
+figure { margin: 8px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 20px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 720px; height: auto; color: var(--fg); font-family: var(--body); }
+figcaption { margin-top: 12px; font-size: 14px; color: var(--muted); max-width: 80ch; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+code, pre { font-family: var(--mono); font-size: 13.5px; }
+pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; overflow-x: auto; line-height: 1.5; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+.grid > div { min-width: 0; display: grid; gap: 6px; align-content: start; padding: 16px; border-top: 2px solid var(--accent); background: var(--surface); }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.tag { display: inline-block; font: 500 11.5px/1 var(--mono); padding: 4px 7px; border-radius: 3px; white-space: nowrap; }
+.t-read { background: var(--accent-soft); color: var(--accent); }
+.t-gate { background: var(--gate-soft); color: var(--gate); }
+.t-deny { background: var(--deny-soft); color: var(--deny); }
+.t-exec { background: var(--exec-soft); color: var(--exec); }
+.decisions { display: grid; gap: 12px; counter-reset: d; padding: 0; list-style: none; }
+.decisions li { counter-increment: d; display: grid; grid-template-columns: 36px 1fr; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.decisions li::before { content: counter(d); font: 600 22px/1 var(--display); color: var(--accent); }
+.decisions li > div { min-width: 0; display: grid; gap: 4px; }
+.rec { font-weight: 600; color: var(--accent); }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; }
+.summary div { min-width: 0; display: grid; gap: 4px; }
+.summary b { font: 600 15px/1.3 var(--display); }
+.summary span { font-size: 14.5px; color: var(--muted); }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sources { font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Design concept · draft 2 · 25 Oct 2026</div>
+  <h1>Rezztor Orchestrator</h1>
+  <p class="lede">One agent an engineer gives a prompt to. It finds out, plans, gets approval, executes through plugins, verifies and reports, across an enterprise's network and cloud.</p>
+  <div class="meta">Repo Rezztor/orchestrator · AGPL-3.0 + Rezztor Enterprise · PLAN.md has the full text</div>
+  <div class="summary">
+    <div><b>The model proposes, code disposes</b><span>Risk, scope and approval are computed from plugin manifests and policy, never from the model's own rating.</span></div>
+    <div><b>Read freely, change deliberately</b><span>Discovery is wide and cheap. Every change is a plan, a digest, a single-use approval and a verification.</span></div>
+    <div><b>Tool output is data</b><span>Text from a device, ticket or log is tainted and can never start a change by itself.</span></div>
+    <div><b>Every line is ours</b><span>Written from scratch. Ideas from research and from our own products; no code from any other project.</span></div>
+  </div>
+</header>
+
+<section id="architecture">
+  <h2>Architecture: five planes</h2>
+  <p class="prose">The prompt enters at the top and only an approved, digested job reaches a device or a cloud at the bottom. The model lives in the orchestrator core. Below the control plane there is no model, only code that runs what was approved.</p>
+  <figure>
+    <svg viewBox="0 0 960 640" role="img" aria-label="Five planes from interfaces to execution, with the audit ledger beside all of them and no model below the control plane">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+      </defs>
+      <g font-size="12.5" text-anchor="middle">
+        <!-- Interfaces -->
+        <rect style="fill:var(--bg);stroke:var(--line)" x="20" y="20" width="820" height="70" rx="4"/>
+        <text x="32" y="50" text-anchor="start" font-weight="600" fill="currentColor">Interfaces</text>
+        <text style="fill:var(--muted)" x="32" y="68" text-anchor="start" font-size="11">SSO · tenant · role</text>
+        <g style="fill:var(--surface);stroke:var(--line)">
+          <rect x="170" y="35" width="120" height="40" rx="3"/><rect x="305" y="35" width="120" height="40" rx="3"/><rect x="440" y="35" width="120" height="40" rx="3"/><rect x="575" y="35" width="120" height="40" rx="3"/><rect x="710" y="35" width="120" height="40" rx="3"/>
+        </g>
+        <g fill="currentColor"><text x="230" y="59">Web UI</text><text x="365" y="59">API</text><text x="500" y="59">ChatOps</text><text x="635" y="59">Scheduler</text><text x="770" y="59">Webhooks</text></g>
+
+        <!-- Core -->
+        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="20" y="120" width="820" height="130" rx="4"/>
+        <text style="fill:var(--accent)" x="32" y="150" text-anchor="start" font-weight="600">Orchestrator</text>
+        <text style="fill:var(--accent)" x="32" y="166" text-anchor="start" font-weight="600">core</text>
+        <text style="fill:var(--muted)" x="32" y="184" text-anchor="start" font-size="11">the model is here</text>
+        <g style="fill:var(--surface);stroke:var(--accent)">
+          <rect x="170" y="135" width="120" height="40" rx="3"/><rect x="305" y="135" width="120" height="40" rx="3"/><rect x="440" y="135" width="120" height="40" rx="3"/><rect x="575" y="135" width="120" height="40" rx="3"/><rect x="710" y="135" width="120" height="40" rx="3"/>
+          <rect x="170" y="195" width="255" height="40" rx="3"/><rect x="440" y="195" width="120" height="40" rx="3"/><rect x="575" y="195" width="255" height="40" rx="3"/>
+        </g>
+        <g fill="currentColor"><text x="230" y="159">Intake</text><text x="365" y="159">Planner</text><text x="500" y="159">Loop</text><text x="635" y="159">Specialists</text><text x="770" y="159">Reporter</text>
+          <text x="297" y="219">Context: skills · memory · inventory</text><text x="500" y="219">Reviewer</text><text x="702" y="219">Model gateway (local or hosted)</text></g>
+
+        <!-- Control -->
+        <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="20" y="290" width="820" height="80" rx="4"/>
+        <text style="fill:var(--gate)" x="32" y="322" text-anchor="start" font-weight="600">Control plane</text>
+        <text style="fill:var(--muted)" x="32" y="340" text-anchor="start" font-size="11">code, fails closed</text>
+        <g style="fill:var(--surface);stroke:var(--gate)">
+          <rect x="170" y="310" width="120" height="40" rx="3"/><rect x="305" y="310" width="120" height="40" rx="3"/><rect x="440" y="310" width="120" height="40" rx="3"/><rect x="575" y="310" width="120" height="40" rx="3"/><rect x="710" y="310" width="120" height="40" rx="3"/>
+        </g>
+        <g fill="currentColor"><text x="230" y="334">Policy engine</text><text x="365" y="334">Risk classifier</text><text x="500" y="334">Guardrails</text><text x="635" y="334">Approvals</text><text x="770" y="334">Budgets · kill</text></g>
+
+        <line style="stroke:var(--deny)" x1="20" y1="390" x2="840" y2="390" stroke-dasharray="6 5"/>
+        <text style="fill:var(--deny)" x="836" y="384" text-anchor="end" font-size="11">no model below this line</text>
+
+        <!-- Integration -->
+        <rect style="fill:var(--bg);stroke:var(--line)" x="20" y="410" width="820" height="80" rx="4"/>
+        <text x="32" y="442" text-anchor="start" font-weight="600" fill="currentColor">Integration</text>
+        <text style="fill:var(--muted)" x="32" y="460" text-anchor="start" font-size="11">signed plugins</text>
+        <g style="fill:var(--surface);stroke:var(--line)">
+          <rect x="170" y="430" width="255" height="40" rx="3"/><rect x="440" y="430" width="120" height="40" rx="3"/><rect x="575" y="430" width="120" height="40" rx="3"/><rect x="710" y="430" width="120" height="40" rx="3"/>
+        </g>
+        <g fill="currentColor"><text x="297" y="454">Plugin host · manifests · MCP</text><text x="500" y="454">Inventory</text><text x="635" y="454">Credential refs</text><text x="770" y="454">Event bus</text></g>
+
+        <!-- Execution -->
+        <rect style="fill:var(--exec-soft);stroke:var(--exec)" x="20" y="530" width="820" height="90" rx="4"/>
+        <text style="fill:var(--exec)" x="32" y="562" text-anchor="start" font-weight="600">Execution</text>
+        <text style="fill:var(--muted)" x="32" y="580" text-anchor="start" font-size="11">own identity, own fence</text>
+        <g style="fill:var(--surface);stroke:var(--exec)">
+          <rect x="170" y="555" width="120" height="40" rx="3"/><rect x="305" y="555" width="120" height="40" rx="3"/><rect x="440" y="555" width="120" height="40" rx="3"/><rect x="575" y="555" width="120" height="40" rx="3"/><rect x="710" y="555" width="120" height="40" rx="3"/>
+        </g>
+        <g fill="currentColor"><text x="230" y="579">Ansible executor</text><text x="365" y="579">Device bridge</text><text x="500" y="579">Cloud executor</text><text x="635" y="579">Code runner</text><text x="770" y="579">SaaS connectors</text></g>
+
+        <!-- Arrows between planes -->
+        <g stroke="currentColor" stroke-width="1.4" fill="none">
+          <line x1="400" y1="90" x2="400" y2="118" marker-end="url(#a1)"/>
+          <line x1="600" y1="118" x2="600" y2="90" marker-end="url(#a1)"/>
+          <line x1="400" y1="250" x2="400" y2="288" marker-end="url(#a1)"/>
+          <line x1="600" y1="288" x2="600" y2="250" marker-end="url(#a1)"/>
+          <line x1="400" y1="370" x2="400" y2="408" marker-end="url(#a1)"/>
+          <line x1="600" y1="408" x2="600" y2="370" marker-end="url(#a1)"/>
+          <line x1="400" y1="490" x2="400" y2="528" marker-end="url(#a1)"/>
+          <line x1="600" y1="528" x2="600" y2="490" marker-end="url(#a1)"/>
+        </g>
+        <g style="fill:var(--muted)" font-size="11" text-anchor="end">
+          <text x="392" y="109">prompt + identity</text>
+          <text x="392" y="273">every tool call</text>
+          <text x="392" y="404">allowed call + job token</text>
+          <text x="392" y="513">signed, digested job</text>
+        </g>
+        <g style="fill:var(--muted)" font-size="11" text-anchor="start">
+          <text x="608" y="109">answers, approval cards</text>
+          <text x="608" y="273">allow · deny · needs approval</text>
+          <text x="608" y="404">results, marked tainted</text>
+          <text x="608" y="513">evidence, verification</text>
+        </g>
+
+        <!-- Audit -->
+        <rect style="fill:var(--surface)" x="864" y="20" width="76" height="600" rx="4" stroke="currentColor"/>
+        <text transform="translate(907 320) rotate(-90)" font-weight="600" fill="currentColor">Audit ledger · append-only · hash-chained · SIEM</text>
+        <g stroke="currentColor" stroke-dasharray="3 3"><line x1="840" y1="55" x2="864" y2="55"/><line x1="840" y1="185" x2="864" y2="185"/><line x1="840" y1="330" x2="864" y2="330"/><line x1="840" y1="450" x2="864" y2="450"/><line x1="840" y1="575" x2="864" y2="575"/></g>
+      </g>
+    </svg>
+    <figcaption>Every plane writes to the audit ledger; none can edit it. Every row in every plane carries a tenant id under forced row-level security, and each executor is bound to one tenant and its network segment.</figcaption>
+  </figure>
+</section>
+
+<section id="lifecycle">
+  <h2>One request, start to finish</h2>
+  <p class="prose">The loop has named states so the UI, the audit and an auditor all see the same thing. Only three of the eight states can change anything, and none of those three runs a model.</p>
+  <figure>
+    <svg viewBox="0 0 960 260" role="img" aria-label="Request states: intake, discover, plan, policy, approve, execute, verify, report, with refusal, supersede and rollback branches">
+      <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+        <marker id="a2r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path style="fill:var(--deny)" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <g font-size="12" text-anchor="middle">
+        <g font-size="11">
+          <line style="stroke:var(--accent)" x1="24" y1="60" x2="356" y2="60" stroke-width="2"/><text style="fill:var(--accent)" x="190" y="50">agent · read-only tools</text>
+          <line style="stroke:var(--gate)" x1="372" y1="60" x2="472" y2="60" stroke-width="2"/><text style="fill:var(--gate)" x="422" y="50">code</text>
+          <line style="stroke:var(--gate)" x1="488" y1="60" x2="588" y2="60" stroke-width="2"/><text style="fill:var(--gate)" x="538" y="50">human</text>
+          <line style="stroke:var(--exec)" x1="604" y1="60" x2="820" y2="60" stroke-width="2"/><text style="fill:var(--exec)" x="712" y="50">executor · no model</text>
+          <line style="stroke:var(--accent)" x1="836" y1="60" x2="936" y2="60" stroke-width="2"/><text style="fill:var(--accent)" x="886" y="50">agent</text>
+        </g>
+        <g stroke-width="1.4">
+          <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="24" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="140" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="256" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="372" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="488" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--exec-soft);stroke:var(--exec)" x="604" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--exec-soft);stroke:var(--exec)" x="720" y="90" width="100" height="44" rx="3"/>
+          <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="836" y="90" width="100" height="44" rx="3"/>
+        </g>
+        <g style="font-family:var(--mono)" font-weight="500" fill="currentColor">
+          <text x="74" y="116">INTAKE</text><text x="190" y="116">DISCOVER</text><text x="306" y="116">PLAN</text><text x="422" y="116">POLICY</text>
+          <text x="538" y="116">APPROVE</text><text x="654" y="116">EXECUTE</text><text x="770" y="116">VERIFY</text><text x="886" y="116">REPORT</text>
+        </g>
+        <g stroke="currentColor" stroke-width="1.4">
+          <line x1="124" y1="112" x2="138" y2="112" marker-end="url(#a2)"/><line x1="240" y1="112" x2="254" y2="112" marker-end="url(#a2)"/><line x1="356" y1="112" x2="370" y2="112" marker-end="url(#a2)"/><line x1="472" y1="112" x2="486" y2="112" marker-end="url(#a2)"/><line x1="588" y1="112" x2="602" y2="112" marker-end="url(#a2)"/><line x1="704" y1="112" x2="718" y2="112" marker-end="url(#a2)"/><line x1="820" y1="112" x2="834" y2="112" marker-end="url(#a2)"/>
+        </g>
+        <!-- policy deny -->
+        <line style="stroke:var(--deny)" x1="422" y1="134" x2="422" y2="198" stroke-width="1.4" marker-end="url(#a2r)"/>
+        <text style="fill:var(--deny)" x="428" y="170" text-anchor="start" font-size="11">deny</text>
+        <rect style="fill:var(--deny-soft);stroke:var(--deny)" x="362" y="200" width="120" height="40" rx="3"/>
+        <text style="fill:var(--deny)" x="422" y="224">refused, rule shown</text>
+        <!-- supersede -->
+        <path d="M654 134 C654 180 538 180 538 136" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a2)"/>
+        <text style="fill:var(--muted)" x="596" y="192" font-size="11">digest differs: new card</text>
+        <!-- verify fail -->
+        <line style="stroke:var(--deny)" x1="770" y1="134" x2="770" y2="198" stroke-width="1.4" marker-end="url(#a2r)"/>
+        <text style="fill:var(--deny)" x="764" y="170" text-anchor="end" font-size="11">fails</text>
+        <rect style="fill:var(--deny-soft);stroke:var(--deny)" x="720" y="200" width="100" height="40" rx="3"/>
+        <text style="font-family:var(--mono);fill:var(--deny)" x="770" y="224">ROLLBACK</text>
+        <path d="M820 220 H886 V136" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#a2)"/>
+      </g>
+    </svg>
+    <figcaption>The plan is structured JSON (steps, capability, targets, pre-checks, verification, back-out), not prose. The approval is of the plan's digest; the executor re-plans at apply time and any difference sends the engineer a new card instead of applying.</figcaption>
+  </figure>
+</section>
+
+<section id="research">
+  <h2>What five open-source harnesses taught us</h2>
+  <p class="prose">Studied for ideas only; nothing from them is copied. All five agree on a small loop, a tool registry, skills as files, sub-agents with narrow context and a separate sandbox. None has tenants, approval that cannot be replayed, split credentials or an audit the agent cannot edit. That gap is the product.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Harness</th><th>We take</th><th>We avoid</th></tr></thead>
+    <tbody>
+      <tr><td>Hermes Agent</td><td>Skills the agent writes after solving a task and refines in use; curated memory snapshot plus full-text search over past sessions; pluggable execution backends; scheduled jobs in plain language</td><td>Self-written skills go live at once; one-user trust model</td></tr>
+      <tr><td>Agent Zero</td><td>Hierarchy: the top agent delegates to subordinates with their own focused context; tools and plugins discovered from the filesystem</td><td>Policy only in prompt prose; code running in the agent's own container</td></tr>
+      <tr><td>DeepSeek Harness</td><td>One plugin contract for models, tools, skills, sessions and UIs; reusable agent presets; trajectory view with every step, call, time and token; can host other agents as sub-agents</td><td>v0.1 preview with no documented permission model</td></tr>
+      <tr><td>OpenHands</td><td>Risk levels LOW / MEDIUM / HIGH / UNKNOWN; analyzers fused worst-case-wins that fail closed; confirmation policy as an object where unknown means confirm; decisions in the event stream</td><td>The model's self-rated risk as the deciding signal</td></tr>
+      <tr><td>Goose</td><td>Each extension an MCP server in its own process with a cleared environment; per-tool allow / confirm / deny; YAML recipes that pin the extensions a workflow needs</td><td>A global "allow" that turns every prompt off</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose" style="color:var(--muted);font-size:14.5px">A 2026 source study of eleven harnesses found none built on a general agent framework, skills now more common than MCP, and behavioural policy moving from prompt text into configuration. This design follows all three.</p>
+</section>
+
+<section id="licence">
+  <h2>Ownership and licence</h2>
+  <p class="prose">The same model as netops-eagent: open source, owned entirely by Rezztor, paid for through the Enterprise subscription.</p>
+  <div class="grid">
+    <div><h3>Community</h3><ul><li>AGPL-3.0: anyone may run and change it in their enterprise</li><li>A modified version run as a service must offer its source</li><li>Builds a customer makes carry another name (TRADEMARKS.md)</li></ul></div>
+    <div><h3>Rezztor Enterprise</h3><ul><li>Builds signed by Rezztor</li><li>Support and patches for supported releases</li><li>Integrations and updates delivered with the subscription</li><li>A separate commercial licence stays possible, since Rezztor owns all the copyright</li></ul></div>
+    <div><h3>Clean room</h3><ul><li>No code, prompt, test or schema copied from any project, Rezztor's EAgent included</li><li>Published specs (MCP, SKILL.md, OIDC, syslog) implemented ourselves</li><li>Libraries installed, never vendored, AGPL-compatible, each listed in THIRD-PARTY-NOTICES.md</li></ul></div>
+    <div><h3>Open source, not open contribution</h3><ul><li>Outside pull requests closed unreviewed by a workflow</li><li>Issues and private security reports welcome</li><li>Ownership of every line stays with Rezztor</li></ul></div>
+  </div>
+</section>
+
+<section id="lessons">
+  <h2>Lessons from our own products</h2>
+  <p class="prose">The EAgent learned these the hard way. The orchestrator keeps the ideas and writes its own code for each one.</p>
+  <div class="grid">
+    <div><h3>Execution</h3><ul><li>Executors are not the sandbox where agent code runs</li><li>The core holds only a job token</li><li>Model-written code off by default, always high risk</li></ul></div>
+    <div><h3>Approval</h3><ul><li>The approved artefact is the plan's digest</li><li>The approval is a row used exactly once</li><li>The requester is the accountable approver</li></ul></div>
+    <div><h3>Secrets and identity</h3><ul><li>Separate read and change identities</li><li>The model never sees a stored secret</li><li>Change identities cannot delete or stop, by grant list</li></ul></div>
+    <div><h3>Agent behaviour</h3><ul><li>The agent does not set its own goals</li><li>Skills it writes stay private until approved</li><li>Automatic sources propose, never overwrite</li></ul></div>
+  </div>
+</section>
+
+<section id="guardrails">
+  <h2>Guardrails: what to do, what not to do</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Layer</th><th>Checks</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td>Input</td><td>Injection classifier on user text and on every tool result; secrets typed in chat redirected to the secure form; scope words such as "all" or "every site" flagged</td><td><span class="tag t-gate">ask</span> <span class="tag t-deny">block</span></td></tr>
+      <tr><td>Action</td><td>Capability allow-list per role and per sub-agent; target inside tenant, site and tag scope; risk from manifest plus target criticality; blast-radius limit; change window and freeze calendar; rate limit</td><td><span class="tag t-gate">approve</span> <span class="tag t-deny">deny</span></td></tr>
+      <tr><td>Output</td><td>Secret and PII redaction, twice; claims about live state must cite a tool result from this run</td><td><span class="tag t-read">redact</span></td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose"><b>Shipped hard rules</b> (a tenant can tighten them, never loosen): nothing destructive without a capability marked destructive and two approvers; nothing outside a declared scope or during a freeze; the agent never edits its own policy, skills or plugins; no goal the user did not give; no egress from the core except to declared plugin endpoints.</p>
+</section>
+
+<section id="protection">
+  <h2>Agent protection</h2>
+  <p class="prose">The likeliest attack on an infrastructure agent is text it reads: a device banner, a ticket body or a log line telling it to do something. Tainted text can reach the model, but the only road from the model to an executor runs through the policy engine and a person.</p>
+  <figure>
+    <svg viewBox="0 0 800 280" role="img" aria-label="Tool output is scrubbed and marked tainted; the model can only propose a plan, which goes through policy and a human before the executor applies it; a direct call from model to executor is refused">
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+      </defs>
+      <g font-size="12.5" text-anchor="middle">
+        <rect style="fill:var(--bg)" x="24" y="50" width="140" height="50" rx="3" stroke="currentColor"/><text x="94" y="72" fill="currentColor">Device · API</text><text style="fill:var(--muted)" x="94" y="88" font-size="11">ticket · log</text>
+        <rect style="fill:var(--surface)" x="214" y="50" width="150" height="50" rx="3" stroke="currentColor"/><text x="289" y="72" fill="currentColor">Scrub + mark</text><text style="fill:var(--muted)" x="289" y="88" font-size="11">secrets out, taint on</text>
+        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="424" y="50" width="150" height="50" rx="3"/><text x="499" y="80" fill="currentColor">Orchestrator model</text>
+        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="634" y="50" width="140" height="50" rx="3"/><text x="704" y="80" fill="currentColor">Change plan</text>
+        <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="634" y="200" width="140" height="50" rx="3"/><text x="704" y="230" fill="currentColor">Policy engine</text>
+        <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="424" y="200" width="150" height="50" rx="3"/><text x="499" y="230" fill="currentColor">Human approver</text>
+        <rect style="fill:var(--exec-soft);stroke:var(--exec)" x="214" y="200" width="150" height="50" rx="3"/><text x="289" y="230" fill="currentColor">Executor</text>
+        <g stroke="currentColor" stroke-width="1.4" fill="none">
+          <line x1="164" y1="75" x2="212" y2="75" marker-end="url(#a3)"/>
+          <line x1="364" y1="75" x2="422" y2="75" marker-end="url(#a3)"/>
+          <line x1="574" y1="75" x2="632" y2="75" marker-end="url(#a3)"/>
+          <line x1="704" y1="100" x2="704" y2="198" marker-end="url(#a3)"/>
+          <line x1="634" y1="225" x2="576" y2="225" marker-end="url(#a3)"/>
+          <line x1="424" y1="225" x2="366" y2="225" marker-end="url(#a3)"/>
+          <path d="M214 225 H94 V102" marker-end="url(#a3)"/>
+        </g>
+        <g style="fill:var(--muted)" font-size="11">
+          <text x="188" y="66">output</text><text x="393" y="66">tainted</text><text x="603" y="66">proposes</text>
+          <text x="712" y="155" text-anchor="start">evaluate</text><text x="605" y="216">risk</text><text x="395" y="216">digest</text>
+          <text x="100" y="160" text-anchor="start">apply + verify</text>
+        </g>
+        <line style="stroke:var(--deny)" x1="470" y1="102" x2="330" y2="198" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <g style="stroke:var(--deny)" stroke-width="2.4"><line x1="390" y1="140" x2="410" y2="160"/><line x1="410" y1="140" x2="390" y2="160"/></g>
+        <text style="fill:var(--deny)" x="420" y="168" text-anchor="start" font-size="11">direct change call refused</text>
+      </g>
+    </svg>
+    <figcaption>Risk is computed from the plugin manifest and the target. The model's own rating is a second signal only, fused worst-case-wins, and an analyzer that errors counts as high risk.</figcaption>
+  </figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Threat</th><th>Control</th></tr></thead>
+    <tbody>
+      <tr><td>Approval replay</td><td>Digest approval row, single use, expiry; approver must differ from requester for high risk</td></tr>
+      <tr><td>Credential theft</td><td>Secrets stay in executors or a vault; plugins get references; the model sees names and fingerprints only</td></tr>
+      <tr><td>Bad plugin</td><td>Signed and shipped in the release, never installed at runtime; own process, cleared environment, declared egress only</td></tr>
+      <tr><td>Skill poisoning</td><td>Induced and tenant skills reviewed before use; a skill can never widen permissions</td></tr>
+      <tr><td>Runaway loop</td><td>Step, token, time and cost budgets per request and tenant; circuit breaker; kill switch per tenant and global</td></tr>
+      <tr><td>Data to model vendor</td><td>Model gateway routes per tenant; local model for device data where required; redaction before any hosted call</td></tr>
+      <tr><td>Insider misuse</td><td>RBAC, four-eyes on high risk, every action tied to a person, audit forwarded to the customer's SIEM</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="agents">
+  <h2>Orchestrator and specialists</h2>
+  <p class="prose">Agent Zero's hierarchy, with a hard line: specialists read and propose, and only the orchestrator's plan, once approved, reaches an executor. Each specialist is a preset with its own prompt, skills and short capability list.</p>
+  <figure>
+    <svg viewBox="0 0 960 320" role="img" aria-label="The orchestrator delegates to five specialists with narrowed read capabilities; only an approved plan digest reaches the executors">
+      <defs>
+        <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+      </defs>
+      <g font-size="12.5" text-anchor="middle">
+        <rect style="fill:var(--accent-soft);stroke:var(--accent)" x="405" y="20" width="200" height="50" rx="3"/>
+        <text x="505" y="42" font-weight="600" fill="currentColor">Orchestrator</text><text style="fill:var(--muted)" x="505" y="59" font-size="11">plan · no change capability</text>
+        <g stroke="currentColor" stroke-width="1.3" fill="none">
+          <path d="M505 70 V100 M165 100 H845 M165 100 V128 M335 100 V128 M505 100 V128 M675 100 V128 M845 100 V128"/>
+        </g>
+        <text style="fill:var(--muted)" x="515" y="92" text-anchor="start" font-size="11">narrowed scope down, findings up</text>
+        <g style="fill:var(--surface);stroke:var(--accent)">
+          <rect x="90" y="130" width="150" height="48" rx="3"/><rect x="260" y="130" width="150" height="48" rx="3"/><rect x="430" y="130" width="150" height="48" rx="3"/><rect x="600" y="130" width="150" height="48" rx="3"/><rect x="770" y="130" width="150" height="48" rx="3"/>
+        </g>
+        <g fill="currentColor" font-weight="500"><text x="165" y="159">Network</text><text x="335" y="159">Cloud</text><text x="505" y="159">Identity</text><text x="675" y="159">Monitoring</text><text x="845" y="159">Reviewer</text></g>
+        <g style="font-family:var(--mono);fill:var(--muted)" font-size="10.5"><text x="165" y="196">facts.read show.read</text><text x="335" y="196">azure.inventory.read</text><text x="505" y="196">directory.read</text><text x="675" y="196">solarwinds.query</text><text x="845" y="196">reads plans only</text></g>
+
+        <path d="M405 45 H40 V266 H88" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#a4)"/>
+        <text style="fill:var(--muted)" transform="translate(32 160) rotate(-90)" font-size="11">change plan</text>
+        <rect style="fill:var(--gate-soft);stroke:var(--gate)" x="90" y="242" width="230" height="48" rx="3"/>
+        <text x="205" y="271" fill="currentColor">Policy + approval</text>
+
+        <rect style="fill:var(--exec-soft);stroke:var(--exec)" x="420" y="222" width="510" height="84" rx="4"/>
+        <text style="fill:var(--exec)" x="432" y="240" text-anchor="start" font-size="11">Executors, no model</text>
+        <g style="fill:var(--surface);stroke:var(--exec)"><rect x="436" y="252" width="150" height="38" rx="3"/><rect x="600" y="252" width="150" height="38" rx="3"/><rect x="764" y="252" width="150" height="38" rx="3"/></g>
+        <g fill="currentColor"><text x="511" y="275">Ansible</text><text x="675" y="275">Device bridge</text><text x="839" y="275">Cloud (OpenTofu)</text></g>
+        <line x1="320" y1="266" x2="418" y2="266" stroke="currentColor" stroke-width="1.3" marker-end="url(#a4)"/>
+        <text style="fill:var(--muted)" x="369" y="258" font-size="11">approved digest</text>
+      </g>
+    </svg>
+    <figcaption>No line runs from a specialist to an executor. A reviewer specialist on a different prompt or model critiques every change plan before a person sees it: missing back-out, wider scope than asked, steps no discovery justified.</figcaption>
+  </figure>
+</section>
+
+<section id="plugins">
+  <h2>Plugin contract</h2>
+  <p class="prose">Every integration, first-party or a wrapped MCP server, is a folder with a manifest. The manifest is what the policy engine reads; a capability that is not in it does not exist. A change capability must support plan, digest, apply and verify, and one without a rollback is one risk class higher.</p>
+<pre>name: ansible
+version: 1.4.0
+signed_by: rezztor-release
+transport: process            # MCP stdio/HTTP; inprocess for shipped plugins only
+egress: [executor.ansible.local:8443]
+credentials: [ansible.executor_token]   # references, resolved by the host
+capabilities:
+  - id: ansible.facts.read
+    kind: read
+    risk: low
+    targets: device
+  - id: ansible.playbook.run
+    kind: change
+    risk: medium              # floor; target criticality can raise it
+    targets: device
+    plan: true                # check-mode plan with a digest
+    verify: true              # declares post-checks
+    rollback: playbook        # or "none", which raises the risk class</pre>
+  <p class="prose">First-party plugins, in order: inventory, Ansible executor, Rezztor device bridge, Azure cloud executor, SolarWinds, SIEM forward, ticketing as the CR source, mail, and the licence server and portal.</p>
+</section>
+
+<section id="platform">
+  <h2>Skills, approvals, audit, tenancy</h2>
+  <div class="grid">
+    <div><h3>Skills</h3><ul><li><code>SKILL.md</code> folders with domain, required capabilities and a risk ceiling</li><li>Shipped, tenant-written, or induced by the agent after a task</li><li>Induced skills inert until an admin approves</li><li>Each skill can carry eval cases run in CI</li><li>Recipes: saved, parameterised, schedulable workflows</li></ul></div>
+    <div><h3>Approvals</h3><ul><li>Classes: <span class="tag t-read">read</span> <span class="tag t-gate">change-low/med/high</span> <span class="tag t-deny">destructive</span></li><li>Class × target criticality × environment decides auto, one or two approvers, CR number, window</li><li>Approve in the UI, ChatOps, or by CAB in the ticket system</li><li>Break-glass needs a reason and pages the tenant admin</li></ul></div>
+    <div><h3>Audit</h3><ul><li>Append-only table, each row hashes the one before</li><li>Periodic anchor signed by the instance key</li><li>Insert only for the application role</li><li>SIEM forward; per-change export for auditors</li><li>Trajectory view of every step, call, time and token</li></ul></div>
+    <div><h3>Tenancy</h3><ul><li>Installation → tenant → workspace → user</li><li><code>tenant_id</code> on every row, row-level security forced</li><li>Per tenant: policy, skills, plugins, vault namespace, model route, budgets, executors</li><li>Directory sign-in (OIDC/SAML, SCIM); MFA for approvers</li></ul></div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2>Roadmap</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Phase</th><th>Outcome</th><th>Size</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>Licence files and clean-room rules (done), decisions below, repo skeleton, CI runner</td><td>days</td></tr>
+      <tr><td>1</td><td>Core loop with states, model gateway, audit ledger, tenants with RLS, web chat; read-only inventory and Ansible facts</td><td>3–4 wks</td></tr>
+      <tr><td>2</td><td>Policy engine, risk classifier, three guardrail layers, taint tracking, budgets, kill switch</td><td>3 wks</td></tr>
+      <tr><td>3</td><td>Change path: plan, digest, approval row, execute, verify, rollback; Ansible and device bridge changes</td><td>4 wks</td></tr>
+      <tr><td>4</td><td>Skills with review, recipes, scheduler, specialists, reviewer agent</td><td>3 wks</td></tr>
+      <tr><td>5</td><td>Azure executor, SolarWinds, ticketing, SIEM, ChatOps approvals</td><td>4 wks</td></tr>
+      <tr><td>6</td><td>Red-team suite (injection corpus, approval replay, plugin escape), eval suite, HA, release build</td><td>3 wks</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="decisions">
+  <h2>Decisions for RIfky</h2>
+  <ol class="decisions">
+    <li><div><b>When the repo goes public</b><span><span class="rec">Recommended:</span> private until phase 1 runs, then public like netops-eagent. Alternative: public now, design only.</span></div></li>
+    <li><div><b>Third-party libraries</b><span><span class="rec">Recommended:</span> allowed as installed dependencies under AGPL-compatible licences, each listed. Alternative: standard library only where possible, our own code for the rest.</span></div></li>
+    <li><div><b>Policy engine</b><span><span class="rec">Recommended:</span> rules in Python, data in YAML per tenant. Alternative: embed OPA with Rego.</span></div></li>
+    <li><div><b>First integration after inventory</b><span><span class="rec">Recommended:</span> our own Ansible executor. Alternatives: the device bridge, or the NetOps EAgent through its API.</span></div></li>
+    <li><div><b>Name</b><span>Working name Rezztor Orchestrator, repo Rezztor/orchestrator.</span></div></li>
+  </ol>
+</section>
+
+<section id="sources" class="sources">
+  <h2>Sources for the ideas</h2>
+  <ul>
+    <li><a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> · <a href="https://agentic-ai.readthedocs.io/en/latest/AgentPlatforms/hermes-agent/">overview</a></li>
+    <li><a href="https://github.com/agent0ai/agent-zero">Agent Zero</a></li>
+    <li><a href="https://www.datacamp.com/tutorial/deepseek-harness">DeepSeek Harness tutorial</a> · <a href="https://cryptobriefing.com/deepseek-harness-open-source-developer-preview/">preview announcement</a></li>
+    <li><a href="https://docs.openhands.dev/sdk/arch/security">OpenHands security architecture</a> · <a href="https://arxiv.org/pdf/2407.16741">paper</a></li>
+    <li><a href="https://mintlify.wiki/block/goose/concepts/extensions">Goose extensions</a></li>
+    <li><a href="https://arxiv.org/abs/2609.00006">Harness Engineering: a source-code study of eleven systems</a></li>
+      </ul>
+</section>
+</div>
+</body>
+</html>

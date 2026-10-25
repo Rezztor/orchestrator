@@ -1,0 +1,32 @@
+name: Close outside pull requests
+
+# Rezztor Orchestrator takes no code from outside (CONTRIBUTING.md). pull_request_target runs in this repository's context
+# with a token that can close the pull request; it never checks out or runs the pull request's code.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  close:
+    if: >-
+      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: pr.number,
+              body: "Thank you for taking the time. Rezztor Orchestrator is open source but does not accept code from outside: " +
+                    "all of it is written by Rezztor Technologies, so this pull request is closed without review. " +
+                    "You are welcome to keep your change in your own fork under the AGPL-3.0. If it fixes a bug or adds " +
+                    "something others need, please open an issue describing it. See CONTRIBUTING.md.",
+            });
+            await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, state: "closed" });
