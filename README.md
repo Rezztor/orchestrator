@@ -3,7 +3,7 @@
 The enterprise agent that takes a prompt and orchestrates infrastructure and cloud work across a customer's estate
 and Rezztor's products: discover, plan, get approval, execute through plugins, verify, report.
 
-Phase 1: the request loop, tenants with row-level security, the hash-chained audit ledger, read-only plugins
+Phases 1 and 2: the request loop, tenants with row-level security, the hash-chained audit ledger, read-only plugins
 (inventory, Ansible facts through our own executor) and web sign-in with chat.
 
 ## Run it
@@ -21,6 +21,12 @@ python -m orchestrator audit-verify <tenant-id>
 python -m orchestrator set-password <tenant-id> alice               # at least 12 characters
 python -m orchestrator.web                                         # sign in and chat at http://127.0.0.1:8080
 ```
+
+Phase 2 guardrails: each role gets only the capabilities `orchestrator/policy.yaml` allows, and a tenant's own policy
+(`policy-set`) can only narrow that; limits cap steps, tool calls, tokens, targets per call and requests per hour.
+Prompts holding a secret are refused and stored redacted; tool output and answers are redacted before the model or
+the browser sees them; instruction-like text in tool output is flagged. A tenant administrator can stop all agent
+work from the page or with `stop`; `stop-all` stops the whole installation.
 
 The session cookie is `Secure`: browsers accept it on `localhost`; anywhere else serve HTTPS (`ORCH_WEB_CERT` and
 `ORCH_WEB_KEY`, or TLS in front).

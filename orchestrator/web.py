@@ -12,7 +12,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import auth, loop
+from . import auth, db, loop
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
           "/app.css": ("app.css", "text/css")}
@@ -45,7 +45,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, (Path(__file__).parent / "static" / name).read_bytes(), ctype)
         if self.path == "/api/me":
             me = auth.session(self.token())
-            return self.send(200, me) if me else self.send(401, {"error": "sign in"})
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            with db.tenant(me["tenant_id"]) as conn:
+                return self.send(200, {**me, "stopped": loop.stopped(conn)})
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -83,6 +86,18 @@ class Handler(BaseHTTPRequestHandler):
             if state == "FAILED":  # the reason is in the audit ledger, not shown to the browser
                 answer = f"This request could not be completed. Reference {request_id}."
             return self.send(200, {"request": request_id, "state": state, "answer": answer})
+        if self.path == "/api/kill-switch":
+            me = auth.session(self.token())
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            if me["role"] != "tenant-admin":
+                return self.send(403, {"error": "only a tenant administrator can stop or resume agent work"})
+            reason = body.get("reason")
+            if body.get("stop") is True and not (isinstance(reason, str) and reason.strip()):
+                return self.send(400, {"error": "say why you are stopping agent work"})
+            with db.tenant(me["tenant_id"]) as conn:
+                loop.set_kill_switch(conn, me["user"], reason.strip()[:500] if body.get("stop") is True else None)
+                return self.send(200, {"stopped": loop.stopped(conn)})
         self.send(404, {"error": "not found"})
 
 

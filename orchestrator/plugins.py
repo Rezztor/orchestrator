@@ -37,10 +37,10 @@ def tool_name(cap_id):
     return cap_id.replace(".", "__")
 
 
-def tools(caps):
-    """The capabilities as Chat Completions tool definitions."""
+def tools(caps, offer=lambda cap: True):
+    """The capabilities `offer` accepts, as Chat Completions tool definitions."""
     return [{"type": "function", "function": {"name": tool_name(c["id"]), "description": c["description"],
-                                              "parameters": c["params"]}} for c in caps.values()]
+                                              "parameters": c["params"]}} for c in caps.values() if offer(c)]
 
 
 def check_args(schema, args):
@@ -58,12 +58,8 @@ def check_args(schema, args):
             raise Refused(f"argument {key!r} must be {props[key]['type']}")
 
 
-def call(caps, name, args, conn):
-    """Run one tool call in the tenant's transaction. Phase 1 runs read capabilities only."""
+def find(caps, name):
     cap = next((c for c in caps.values() if tool_name(c["id"]) == name), None)
     if cap is None:
         raise Refused(f"no capability {name!r}")
-    if cap["kind"] != "read":
-        raise Refused(f"{cap['id']} changes something; changes need the approval path, which is not enabled")
-    check_args(cap["params"], args)
-    return cap, cap["handler"](conn, **args)
+    return cap

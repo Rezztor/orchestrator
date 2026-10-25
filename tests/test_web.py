@@ -86,3 +86,22 @@ def test_short_passwords_are_refused(database):
     t = db.create_tenant("acme", "alice")
     with pytest.raises(ValueError):
         auth.set_password(t, "alice", "short")
+
+
+def test_only_a_tenant_admin_can_stop_agent_work(site):
+    _, token, _ = sign_in(site)
+    with db.app() as conn:
+        acme = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
+    with db.tenant(acme) as conn:
+        conn.execute("INSERT INTO users (tenant_id, name, role) VALUES (%s, 'olga', 'operator')", (acme,))
+    auth.set_password(acme, "olga", "another good password")
+    _, _, headers = call(site, "/api/sign-in", {"tenant": "acme", "user": "olga", "password": "another good password"})
+    olga = headers["Set-Cookie"].split(";")[0].split("=", 1)[1]
+
+    assert call(site, "/api/kill-switch", {"stop": True, "reason": "x"}, cookie=olga)[0] == 403
+    assert call(site, "/api/kill-switch", {"stop": True}, cookie=token)[0] == 400
+    assert call(site, "/api/kill-switch", {"stop": True, "reason": "change freeze"}, cookie=token)[1] == \
+        {"stopped": "change freeze"}
+    assert call(site, "/api/me", cookie=olga)[1]["stopped"] == "change freeze"
+    assert call(site, "/api/ask", {"prompt": "list devices"}, cookie=olga)[1]["state"] == "REFUSED"
+    assert call(site, "/api/kill-switch", {"stop": False}, cookie=token)[1] == {"stopped": None}
