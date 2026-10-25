@@ -12,9 +12,10 @@ permissions:
 
 jobs:
   close:
-    if: >-
-      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
-      && github.event.pull_request.user.login != 'dependabot[bot]'
+    # Only people with write access can push a branch here, so a pull request from a branch of this repository is
+    # ours; an outside one comes from a fork. (author_association reads CONTRIBUTOR for an owner whose org
+    # membership is private, which would close our own pull requests.)
+    if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
