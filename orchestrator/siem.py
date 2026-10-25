@@ -1,7 +1,8 @@
 """Forward the audit ledger to the customer's SIEM as RFC 5424 syslog, one event per ledger row, JSON in the message.
 
 Runs with the owner role (ORCH_DB_URL): it reads every tenant's ledger and keeps its place per tenant in siem_cursor,
-so a restart sends from where it stopped (a row may be sent twice, never skipped).
+so a restart sends from where it stopped (a row may be sent twice, never skipped). Each tenant's batch commits its
+cursor on its own. Run a second forwarder as a standby: an advisory lock lets one send at a time.
 
     ORCH_SIEM_TARGET   udp://host:514, tcp://host:601 or tls://host:6514
     ORCH_SIEM_CA       CA bundle for tls://
@@ -21,6 +22,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 HOST = socket.gethostname()
+LOCK = 0x5ED_1E06  # advisory lock key: one forwarder sends at a time, so a second one is a standby
 
 
 def line(row):
@@ -49,23 +51,27 @@ def connect(target):
 def forward_once(owner_url, target, batch=500):
     """Send every tenant's ledger rows past its cursor. Returns how many rows were sent."""
     sent = 0
-    sock, stream = connect(target)
-    with sock, psycopg.connect(owner_url, row_factory=dict_row) as conn:
-        for tenant in conn.execute("SELECT id FROM tenants ORDER BY created_at").fetchall():
-            with conn.transaction():
-                conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant["id"]),))
-                cursor = conn.execute("INSERT INTO siem_cursor (tenant_id) VALUES (%s) ON CONFLICT (tenant_id) DO "
-                                      "UPDATE SET last_seq = siem_cursor.last_seq RETURNING last_seq",
-                                      (tenant["id"],)).fetchone()["last_seq"]
-                rows = conn.execute("SELECT * FROM audit WHERE seq > %s ORDER BY seq LIMIT %s",
-                                    (cursor, batch)).fetchall()
-                for row in rows:
-                    msg = line(row)
-                    sock.sendall(f"{len(msg)} ".encode() + msg if stream else msg)  # RFC 6587 octet counting
-                if rows:
-                    conn.execute("UPDATE siem_cursor SET last_seq = %s WHERE tenant_id = %s",
-                                 (rows[-1]["seq"], tenant["id"]))
-                sent += len(rows)
+    with psycopg.connect(owner_url, row_factory=dict_row, autocommit=True) as conn:
+        if not conn.execute("SELECT pg_try_advisory_lock(%s) AS got", (LOCK,)).fetchone()["got"]:
+            return 0  # another forwarder is sending this round; the lock goes with its connection
+        sock, stream = connect(target)
+        with sock:
+            for tenant in conn.execute("SELECT id FROM tenants ORDER BY created_at").fetchall():
+                with conn.transaction():
+                    conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant["id"]),))
+                    cursor = conn.execute(
+                        "INSERT INTO siem_cursor (tenant_id) VALUES (%s) ON CONFLICT (tenant_id) DO UPDATE "
+                        "SET last_seq = siem_cursor.last_seq RETURNING last_seq",
+                        (tenant["id"],)).fetchone()["last_seq"]
+                    rows = conn.execute("SELECT * FROM audit WHERE seq > %s ORDER BY seq LIMIT %s",
+                                        (cursor, batch)).fetchall()
+                    for row in rows:
+                        msg = line(row)
+                        sock.sendall(f"{len(msg)} ".encode() + msg if stream else msg)  # RFC 6587 octet counting
+                    if rows:
+                        conn.execute("UPDATE siem_cursor SET last_seq = %s WHERE tenant_id = %s",
+                                     (rows[-1]["seq"], tenant["id"]))
+                    sent += len(rows)
     return sent
 
 

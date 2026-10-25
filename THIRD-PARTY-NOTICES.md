@@ -9,4 +9,7 @@ here with their licences, added in the same change that adds the dependency.
 | PyYAML | Plugin manifests and policy data | MIT |
 | ansible-core | Run by the Ansible executor as a separate program; our callback plugin runs inside it | GPL-3.0-or-later (compatible with the AGPL-3.0) |
 | OpenTofu | Run by the cloud executor as a separate program, with the providers the customer installs | MPL-2.0 |
+| Python (the `python:3.12-slim` image, on Debian) | Base of our images | PSF Licence; Debian packages under their own free licences |
+| OpenSSH client (Debian package) | Device connections from the Ansible executor image | BSD |
+| PostgreSQL (the `postgres:16` image) | Shipped database image, unchanged | PostgreSQL Licence |
 | pytest | Tests only, not shipped | MIT |

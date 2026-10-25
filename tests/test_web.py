@@ -18,7 +18,6 @@ def site(database, monkeypatch):
     t = db.create_tenant("acme", "alice")
     auth.set_password(t, "alice", "correct horse battery")
     add_device(t, "core-sw1", "colombo")
-    monkeypatch.setattr(auth, "_failures", {})
     server = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}"

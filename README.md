@@ -3,10 +3,10 @@
 The enterprise agent that takes a prompt and orchestrates infrastructure and cloud work across a customer's estate
 and Rezztor's products: discover, plan, get approval, execute through plugins, verify, report.
 
-Phases 1 to 5: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
+Phases 1 to 6: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
 Ansible facts and reviewed Ansible playbooks through our own executor), the policy engine and guardrails, the change
 path with approvals, skills, recipes and schedules, specialist sub-agents and a change reviewer, web sign-in, and the
-integrations below.
+integrations below, then hardening: red-team and eval suites, running more than one copy, and a signed release.
 
 ## Run it
 
@@ -77,6 +77,32 @@ Phase 5 integrations:
 - **ChatOps**: `webhook-add TENANT teams|slack|json URL` posts planned, approved, rejected and finished changes and
   kill-switch events, with a link (`ORCH_PUBLIC_URL`) to the change on the page. People approve on the page, where
   they are signed in; a chat button cannot prove who pressed it.
+
+Phase 6 hardening:
+
+- **Red team** (`tests/test_redteam.py`): the model is assumed hijacked. Every line of
+  `tests/redteam/injections.txt` must be flagged when it shows up in tool output, and a scripted attack (tools that do
+  not exist, too many targets, another tenant's device, smuggled arguments, a made-up specialist) must leave nothing
+  but one PLANNED change that the hijacked account cannot approve and another tenant cannot see. Add every new attack
+  to the corpus.
+- **Evals** (`evals/cases.yaml`, `python -m orchestrator eval evals/cases.yaml`): prompts with the capabilities a good
+  answer must call and must never touch, run against the configured model. Each case gets a new `eval-*` tenant and
+  canned results, so no device or cloud is reached; point it at a scratch database.
+- **More than one copy**: web processes share the sign-in lockout through the database, schedulers claim each
+  schedule before running it and mark runs whose process died FAILED, SIEM forwarders take turns, and `GET /healthz`
+  answers 200 while the process reaches the database.
+- **Deployment**: `Dockerfile` (targets `core`, `ansible`, `tofu`, `postgres`) and `deploy/compose.yaml`:
+
+  ```bash
+  cd deploy && cp env.example .env && $EDITOR .env    # put certs/tls.crt and certs/tls.key beside it
+  mkdir -p ansible/playbooks && $EDITOR ansible/inventory
+  docker compose up -d                                 # --profile cloud, --profile siem for those
+  docker compose run --rm migrate python -m orchestrator tenant-add acme alice
+  docker compose run --rm migrate python -m orchestrator set-password <tenant-id> alice
+  ```
+
+  A release: `scripts/build_release.sh v0.6.0 release.key` builds from the pushed tag in a fresh clone; the customer
+  runs `verify_release.sh RELEASE_DIR rezztor-release.pub`, then `docker load -i RELEASE_DIR/orchestrator-*-images.tar.gz`.
 
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
 capability, device names and, for a playbook, its name and variables. A playbook reads its variables as
