@@ -6,6 +6,7 @@ cursor on its own. Run a second forwarder as a standby: an advisory lock lets on
 
     ORCH_SIEM_TARGET   udp://host:514, tcp://host:601 or tls://host:6514
     ORCH_SIEM_CA       CA bundle for tls://
+    ORCH_SIEM_FORMAT   json (default: the row as JSON) or cef (ArcSight CEF), as the syslog message
 
 python -m orchestrator siem-forward
 """
@@ -25,10 +26,28 @@ HOST = socket.gethostname()
 LOCK = 0x5ED_1E06  # advisory lock key: one forwarder sends at a time, so a second one is a standby
 
 
-def line(row):
+LOUD = ("kill_switch.", "change.break_glass", "change.lost", "change.failed", "guard.", "auth.mfa_failed")
+
+
+def cef(row):
+    def head(v):
+        return str(v).replace("\\", "\\\\").replace("|", "\\|")
+
+    def ext(v):
+        return str(v).replace("\\", "\\\\").replace("=", "\\=").replace("\r", "").replace("\n", "\\n")
+    severity = 7 if row["kind"].startswith(LOUD) else 3
+    fields = {"rt": int(row["at"].timestamp() * 1000), "suser": row["actor"], "cs1Label": "tenant",
+              "cs1": row["tenant_id"], "cn1Label": "seq", "cn1": row["seq"], "cs2Label": "hash", "cs2": row["hash"],
+              "msg": json.dumps(row["data"], default=str, separators=(",", ":"))}
+    return (f"CEF:0|Rezztor|Orchestrator|1|{head(row['kind'])}|{head(row['kind'])}|{severity}|"
+            + " ".join(f"{k}={ext(v)}" for k, v in fields.items()))
+
+
+def line(row, fmt="json"):
     at = row["at"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    body = json.dumps({"tenant": str(row["tenant_id"]), "seq": row["seq"], "actor": row["actor"], "kind": row["kind"],
-                       "data": row["data"], "hash": row["hash"]}, default=str, separators=(",", ":"))
+    body = cef(row) if fmt == "cef" else json.dumps(
+        {"tenant": str(row["tenant_id"]), "seq": row["seq"], "actor": row["actor"], "kind": row["kind"],
+         "data": row["data"], "hash": row["hash"]}, default=str, separators=(",", ":"))
     # facility 13 (log audit), severity 6 (informational); MSGID is the event kind
     return f"<110>1 {at} {HOST} rezztor-orchestrator - {row['kind'][:32]} - {body}".encode()
 
@@ -48,9 +67,11 @@ def connect(target):
     return sock, True
 
 
-def forward_once(owner_url, target, batch=500):
+def forward_once(owner_url, target, batch=500, fmt=None):
     """Send every tenant's ledger rows past its cursor. Returns how many rows were sent."""
-    sent = 0
+    sent, fmt = 0, fmt or os.environ.get("ORCH_SIEM_FORMAT", "json")
+    if fmt not in ("json", "cef"):
+        raise ValueError("ORCH_SIEM_FORMAT is json or cef")
     with psycopg.connect(owner_url, row_factory=dict_row, autocommit=True) as conn:
         if not conn.execute("SELECT pg_try_advisory_lock(%s) AS got", (LOCK,)).fetchone()["got"]:
             return 0  # another forwarder is sending this round; the lock goes with its connection
@@ -66,7 +87,7 @@ def forward_once(owner_url, target, batch=500):
                     rows = conn.execute("SELECT * FROM audit WHERE seq > %s ORDER BY seq LIMIT %s",
                                         (cursor, batch)).fetchall()
                     for row in rows:
-                        msg = line(row)
+                        msg = line(row, fmt)
                         sock.sendall(f"{len(msg)} ".encode() + msg if stream else msg)  # RFC 6587 octet counting
                     if rows:
                         conn.execute("UPDATE siem_cursor SET last_seq = %s WHERE tenant_id = %s",

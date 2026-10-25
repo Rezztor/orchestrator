@@ -5,6 +5,7 @@ propose changes: a change capability's call becomes a dry-run plan waiting for p
 """
 import json
 import os
+import time
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -66,12 +67,16 @@ def run(tenant_id, user_name, prompt, chat=None, caps=None, reviewer=None):
         pol = policy.for_tenant(conn)
         recent = conn.execute("SELECT count(*) AS n FROM requests WHERE user_id = %s "
                               "AND created_at > now() - interval '1 hour'", (user["id"],)).fetchone()["n"]
+        today = conn.execute("SELECT coalesce(sum(tokens), 0) AS n FROM requests "
+                             "WHERE created_at > now() - interval '24 hours'").fetchone()["n"]
         secret = guard.has_secret(prompt)
         kill = policy.stopped(conn)
         refusal = (f"Agent work is stopped: {kill}" if kill
                    else SECRET_REFUSAL if secret
                    else f"You have sent {recent} requests in the last hour; the limit is "
                         f"{pol['limits']['max_requests_per_hour']}." if recent >= pol["limits"]["max_requests_per_hour"]
+                   else f"This organisation has used its {pol['limits']['max_tokens_per_day']} model tokens for the "
+                        "last 24 hours." if today >= pol["limits"]["max_tokens_per_day"]
                    else None)
         request_id = conn.execute(
             "INSERT INTO requests (tenant_id, user_id, prompt, state, answer) "
@@ -88,7 +93,9 @@ def run(tenant_id, user_name, prompt, chat=None, caps=None, reviewer=None):
 
     set_state(tenant_id, request_id, "orchestrator", "DISCOVER")
     ctx = {"tenant_id": tenant_id, "request_id": request_id, "prompt": prompt, "user": user, "pol": pol,
-           "caps": caps, "chat": chat, "agent": "orchestrator", "budget": {"steps": 0, "tokens": 0, "tool_calls": 0},
+           "caps": caps, "chat": chat, "agent": "orchestrator",
+           "budget": {"steps": 0, "tokens": 0, "tool_calls": 0,
+                      "until": time.monotonic() + pol["limits"]["max_seconds"]},
            "reviewer": reviewer or (lambda m, t: model.chat(m, t, os.environ.get("ORCH_REVIEW_MODEL")))}
     system = SYSTEM
     if offered_skills:
@@ -116,6 +123,8 @@ def converse(ctx, messages):
         budget["steps"] += 1
         if budget["steps"] > limits["max_steps"]:
             raise Stop(f"no answer within {limits['max_steps']} steps")
+        if time.monotonic() > budget["until"]:
+            raise Stop(f"no answer within {limits['max_seconds']} seconds")
         with db.tenant(ctx["tenant_id"]) as conn:
             if kill := policy.stopped(conn):
                 raise Stop(f"stopped by the kill switch: {kill}")

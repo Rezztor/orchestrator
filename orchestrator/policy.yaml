@@ -14,10 +14,13 @@ approvals:  # people who must approve a change, by risk class; never the person 
   destructive: 2
 change_record: []  # risk classes that need an approved ServiceNow change record to run, for example [high, destructive]
 change_window: null  # for example {days: [sat, sun], start: "22:00", end: "04:00"}, UTC; a window may cross midnight
+freeze: []  # no change runs inside one, break-glass included: [{start: "2026-12-20T00:00", end: "2027-01-05T00:00", reason: Year end}]
 limits:
   max_steps: 8                # model turns per request
   max_tool_calls: 20          # tool calls per request
   max_tokens: 200000          # model tokens per request
+  max_seconds: 900            # wall-clock time per request
+  max_tokens_per_day: 5000000 # model tokens per tenant in any 24 hours
   max_targets_per_call: 50    # items in any list argument (devices, hosts) in one call
   max_requests_per_hour: 60   # per user
   change_ttl_minutes: 240     # a plan not run by then expires and must be proposed again

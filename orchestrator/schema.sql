@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;  -- null: this user cannot sign in with a password
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;     -- base32; approvers and administrators must have one
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_pending text;    -- offered at first sign-in, kept once a code matches
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step bigint NOT NULL DEFAULT 0;  -- a code is accepted once
 
 -- A signed-in browser. Only the SHA-256 of the cookie's token is stored.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -48,7 +51,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at timestamptz NOT NULL
 );
-
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS mfa_ok boolean NOT NULL DEFAULT true;  -- false: only the code step is open
 ALTER TABLE requests DROP CONSTRAINT IF EXISTS requests_state_check;
 ALTER TABLE requests ADD CONSTRAINT requests_state_check CHECK (state IN ('INTAKE', 'DISCOVER', 'PLAN', 'POLICY',
     'APPROVE', 'EXECUTE', 'VERIFY', 'ROLLBACK', 'REPORT', 'DONE', 'FAILED', 'REFUSED'));
@@ -153,6 +156,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 ALTER TABLE changes ADD COLUMN IF NOT EXISTS review text;  -- the reviewer agent's notes, advice only
 
 ALTER TABLE changes ADD COLUMN IF NOT EXISTS change_record text;  -- e.g. a ServiceNow CHG number
+ALTER TABLE changes ADD COLUMN IF NOT EXISTS break_glass text;  -- the reason, when a tenant admin approved alone
 
 -- Where a tenant's change and kill-switch events are posted (Teams, Slack, or plain JSON).
 CREATE TABLE IF NOT EXISTS webhooks (
@@ -166,6 +170,25 @@ CREATE TABLE IF NOT EXISTS webhooks (
 CREATE TABLE IF NOT EXISTS siem_cursor (
     tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
     last_seq bigint NOT NULL DEFAULT 0
+);
+
+-- Directory sign-in (OpenID Connect) for a tenant. The client secret stays in the environment, named here.
+CREATE TABLE IF NOT EXISTS oidc (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    issuer text NOT NULL,
+    client_id text NOT NULL,
+    secret_env text NOT NULL,
+    username_claim text NOT NULL DEFAULT 'preferred_username'
+);
+
+-- A directory sign-in under way: ten minutes from the redirect to the callback, used once.
+CREATE TABLE IF NOT EXISTS oidc_logins (
+    state_hash text PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    browser_hash text NOT NULL,
+    nonce text NOT NULL,
+    verifier text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Failed sign-ins by the names typed, shared by every web process. No tenant column: most attempts name none.
@@ -219,7 +242,7 @@ DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch', 'changes',
-                            'approvals', 'skills', 'recipes', 'schedules', 'webhooks'] LOOP
+                            'approvals', 'skills', 'recipes', 'schedules', 'webhooks', 'oidc', 'oidc_logins'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -256,13 +279,18 @@ CREATE OR REPLACE FUNCTION lost_changes(p_hours int) RETURNS TABLE (tenant_id uu
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
     AS $$ SELECT tenant_id, id FROM changes WHERE state = 'EXECUTING'
           AND updated_at < now() - make_interval(hours => p_hours) $$;
-REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int)
-    TO orch_app;
+-- The anchor round's list of tenants: ids only, and each is then worked on inside its own tenant.
+CREATE OR REPLACE FUNCTION tenant_ids() RETURNS TABLE (id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+    AS $$ SELECT id FROM tenants ORDER BY created_at $$;
+REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int), tenant_ids()
+    FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int),
+    tenant_ids() TO orch_app;
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes, skills, recipes,
-    schedules, webhooks, sign_in_failures TO orch_app;
+    schedules, webhooks, sign_in_failures, oidc, oidc_logins TO orch_app;
 GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;

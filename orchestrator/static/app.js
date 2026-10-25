@@ -9,8 +9,16 @@ async function api(path, body) {
 
 async function show() {
   const me = await api("/api/me");
-  const signedIn = me.status === 200;
-  $("sign-in").hidden = signedIn;
+  const step = me.status === 200 && me.data.mfa;
+  const signedIn = me.status === 200 && !step;
+  $("sign-in").hidden = me.status === 200;
+  $("mfa").hidden = !step;
+  $("enroll").hidden = step !== "enroll";
+  if (step === "enroll") {
+    $("mfa-secret").textContent = me.data.secret.match(/.{1,4}/g).join(" ");
+    $("mfa-uri").href = me.data.uri;
+  }
+  if (step) $("code").focus();
   $("chat").hidden = !signedIn;
   $("sign-out").hidden = !signedIn;
   $("who").textContent = signedIn ? `${me.data.user} (${me.data.role})` : "";
@@ -23,7 +31,7 @@ async function show() {
   current = signedIn ? me.data : null;
   if (signedIn) loadChanges();
   if (signedIn) loadLibrary();
-  (signedIn ? $("prompt") : $("tenant")).focus();
+  if (!step) (signedIn ? $("prompt") : $("tenant")).focus();
 }
 
 const APPROVERS = ["approver", "tenant-admin"];
@@ -60,6 +68,7 @@ function card(c) {
   li.append(el("p", `${c.state} · risk ${c.risk} · approved by ${decided} of ${c.approvals_needed} · ` +
     `asked by ${c.requested_by} · ${c.plan.rollback ? "can be rolled back" : "no rollback"} · expires ${expires}`, "muted"));
   if (c.change_record) li.append(el("p", `Change record: ${c.change_record}`));
+  if (c.break_glass) li.append(el("p", `BREAK-GLASS: ${c.break_glass}`, "error"));
   if (c.review) li.append(el("p", `Reviewer: ${c.review}`, "review"));
   for (const d of c.decisions) li.append(el("p", `${d.user}: ${d.decision}${d.reason ? ` (${d.reason})` : ""}`));
   const plan = el("details");
@@ -92,6 +101,21 @@ function card(c) {
       if (number) act("/api/changes/record", { change: c.id, number });
     }, "secondary"));
   }
+  if (c.state === "PLANNED" && me.role === "tenant-admin" && c.requested_by !== me.user && c.risk !== "destructive" &&
+      !c.decisions.some((d) => d.user === me.user)) {
+    actions.append(button("Break glass", () => {
+      const reason = window.prompt("Emergency approval on your own, outside the change window. Every webhook is " +
+        "told and the ledger flags it. What is the emergency?");
+      if (reason) act("/api/changes/break-glass", { change: c.id, digest: c.digest, reason });
+    }, "danger"));
+  }
+  if (["VERIFIED", "ROLLED_BACK", "FAILED", "SUPERSEDED", "REJECTED"].includes(c.state) &&
+      (approver || c.requested_by === me.user)) {
+    const link = el("a", "Export evidence");
+    link.href = `/api/changes/evidence/${c.id}`;
+    link.download = `change-${c.id}.json`;
+    actions.append(link);
+  }
   if (c.state === "APPROVED" && (approver || c.requested_by === me.user)) {
     actions.append(button("Run the change", () => act("/api/changes/run", { change: c.id })));
   }
@@ -109,10 +133,23 @@ async function loadChanges() {
   if (res.data.changes.some((c) => c.state === "EXECUTING")) polling = setTimeout(loadChanges, 3000);
 }
 
-function say(text, cls) {
+function say(text, cls, request) {
   const li = document.createElement("li");
   li.textContent = text;
   if (cls) li.className = cls;
+  if (request) {
+    const steps = el("details", undefined, "steps");
+    steps.append(el("summary", "Steps"));
+    steps.addEventListener("toggle", async () => {
+      if (!steps.open || steps.dataset.loaded) return;
+      const res = await api(`/api/requests/${request}`);
+      steps.dataset.loaded = "1";
+      steps.append(...(res.status === 200 ? res.data.steps.map((s) => el("pre",
+        `${new Date(s.at).toLocaleTimeString()} · ${s.actor} · ${s.kind}\n${JSON.stringify(s.data, null, 1)}`))
+        : [el("p", res.data.error, "error")]));
+    });
+    li.append(steps);
+  }
   $("log").append(li);
   li.scrollIntoView({ block: "end" });
 }
@@ -123,6 +160,22 @@ $("sign-in").addEventListener("submit", async (e) => {
   $("password").value = "";
   $("sign-in-error").textContent = res.status === 200 ? "" : res.data.error;
   if (res.status === 200) show();
+});
+
+$("directory").addEventListener("click", () => {
+  if (!$("tenant").value) {
+    $("sign-in-error").textContent = "Type your organisation first.";
+    return $("tenant").focus();
+  }
+  window.location.assign(`/oidc/start?tenant=${encodeURIComponent($("tenant").value)}`);
+});
+
+$("mfa").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const res = await api("/api/mfa", { code: $("code").value });
+  $("code").value = "";
+  $("mfa-error").textContent = res.status === 200 ? "" : res.data.error;
+  show();
 });
 
 $("sign-out").addEventListener("click", async () => {
@@ -147,7 +200,7 @@ async function converse(button, label, path, body) {
   try {
     const res = await api(path, body);
     if (res.status === 401) return show();
-    say(res.data.answer ?? res.data.error, res.data.state === "DONE" ? "" : "failed");
+    say(res.data.answer ?? res.data.error, res.data.state === "DONE" ? "" : "failed", res.data.request);
     loadChanges();
     loadLibrary();
   } finally {

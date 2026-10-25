@@ -61,6 +61,7 @@ services:
 
   web:
     <<: *core
+    env_file: [{path: ./oidc.env, required: false}]  # directory client secrets, named by oidc-set
     environment:
       <<: *app-env
       ORCH_WEB_CERT: /certs/tls.crt
@@ -72,10 +73,13 @@ services:
       test: [CMD, python, -c, "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8443/healthz', context=ssl._create_unverified_context(), timeout=5)"]
       interval: 15s
 
-  scheduler:  # recipes on a schedule, and runs whose process died marked FAILED; a second copy is safe
+  scheduler:  # recipes on a schedule, runs whose process died marked FAILED, signed anchors; a second copy is safe
     <<: *core
     command: [python, -m, orchestrator, scheduler]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      ORCH_ANCHOR_KEY: ${ORCH_ANCHOR_KEY:-}  # /keys/anchor.key once ./keys holds one
+    volumes: [./keys:/keys:ro]
     networks: [back, out]
 
   siem:  # the owner role: it reads every tenant's ledger; a second copy waits as a standby
@@ -85,6 +89,7 @@ services:
     environment:
       ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
       ORCH_SIEM_TARGET: ${ORCH_SIEM_TARGET:-}
+      ORCH_SIEM_FORMAT: ${ORCH_SIEM_FORMAT:-json}
     networks: [back, out]
 
   ansible:  # holds the device credentials (in ./ansible/inventory); the core never sees them

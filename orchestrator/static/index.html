@@ -17,7 +17,21 @@
     <label for="user">User name</label><input id="user" autocomplete="username" required>
     <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in</button>
+    <button type="button" id="directory" class="secondary">Sign in with your organisation's directory</button>
     <p id="sign-in-error" class="error" role="alert"></p>
+  </form>
+  <form id="mfa" hidden>
+    <h1>Authenticator code</h1>
+    <div id="enroll" hidden>
+      <p>Approvers and administrators confirm each sign-in with an authenticator app. Add this account to yours
+        (Microsoft Authenticator, Google Authenticator, 1Password and the like) with the key below, then type the
+        code it shows.</p>
+      <p><code id="mfa-secret"></code></p>
+      <p class="muted"><a id="mfa-uri">Open in an authenticator app on this device</a></p>
+    </div>
+    <label for="code">Six-digit code</label><input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+    <button type="submit">Continue</button>
+    <p id="mfa-error" class="error" role="alert"></p>
   </form>
   <section id="chat" hidden>
     <ol id="log" aria-live="polite"></ol>
