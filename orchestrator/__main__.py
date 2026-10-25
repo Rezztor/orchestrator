@@ -16,9 +16,10 @@
   recipe-add TENANT_ID NAME FILE                 YAML: description, prompt with {placeholders}
   recipe-run TENANT_ID USER NAME [KEY=VALUE ...]
   schedule-add TENANT_ID RECIPE USER MINUTES [KEY=VALUE ...]   run the recipe as USER every MINUTES (5 or more)
-  scheduler                                      run due schedules, forever
+  scheduler                                      run due schedules and fail lost runs, forever
   webhook-add TENANT_ID teams|slack|json URL     post change and kill-switch events there
   siem-forward                                   send the audit ledger to ORCH_SIEM_TARGET, forever (owner role)
+  eval FILE                                      run eval cases against the model, each in a new eval-* tenant
 """
 import getpass
 import json
@@ -27,7 +28,7 @@ import sys
 
 import psycopg
 
-from . import auth, db, loop, notify, policy, recipes, siem, skills
+from . import auth, db, evals, loop, notify, policy, recipes, siem, skills
 
 
 def main(argv):
@@ -104,6 +105,8 @@ def main(argv):
             notify.add(tenant_id, "cli", kind, url)
         case ["siem-forward"]:
             siem.forward()
+        case ["eval", path]:
+            return 0 if evals.run(path) else 1
         case _:
             print(__doc__, file=sys.stderr)
             return 2

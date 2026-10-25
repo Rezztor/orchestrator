@@ -18,6 +18,9 @@ INSTRUCTION = re.compile("|".join([
     r"disregard (?:the |all |your |any )?(?:previous |prior )?(?:instructions|rules|guidelines)",
     r"you are now\b", r"new instructions\s*:", r"\bsystem prompt\b", r"\bdeveloper mode\b",
     r"\bact as (?:an? )?(?:admin|administrator|root|developer)\b",
+    r"forget (?:all |your |the )?(?:previous |prior |earlier )?(?:instructions|rules)",
+    r"override (?:all |your |the )?(?:previous |prior )?(?:instructions|rules)", r"ignore the above\b",
+    r"from now on,? you (?:must|will|should|are)\b", r"\bdo not tell the user\b",
 ]), re.IGNORECASE)
 # shortcut: pattern lists, not a trained classifier; add a model-based check when real traffic shows misses.
 

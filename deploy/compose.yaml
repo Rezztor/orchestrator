@@ -1,0 +1,118 @@
+# Rezztor Orchestrator on one host. Copy env.example to .env, fill it in, then:
+#   docker compose up -d                       postgres, migrate, web, scheduler, Ansible executor
+#   docker compose --profile cloud up -d       ...and the OpenTofu executor
+#   docker compose --profile siem up -d        ...and the SIEM forwarder
+#   docker compose run --rm migrate python -m orchestrator tenant-add acme alice
+# Only postgres sits on the internal network alone; it publishes no port. The web page is the only published port.
+# shortcut: the executors speak plain HTTP with their token on the internal network; set ORCH_*_CERT/KEY and
+# ORCH_*_CA to encrypt it when the executors move to another host.
+x-core: &core
+  image: rezztor/orchestrator-core:${ORCH_VERSION}
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+x-app-env: &app-env
+  ORCH_DB_APP_URL: postgresql://orch_app:${ORCH_DB_APP_PASSWORD}@postgres:5432/orch
+  ORCH_MODEL_URL: ${ORCH_MODEL_URL}
+  ORCH_MODEL: ${ORCH_MODEL}
+  ORCH_MODEL_KEY: ${ORCH_MODEL_KEY:-}
+  ORCH_REVIEW_MODEL: ${ORCH_REVIEW_MODEL:-}
+  ORCH_ANSIBLE_URL: http://ansible:8470
+  ORCH_ANSIBLE_TOKEN: ${ORCH_ANSIBLE_TOKEN}
+  ORCH_TOFU_URL: http://tofu:8471
+  ORCH_TOFU_TOKEN: ${ORCH_TOFU_TOKEN:-}
+  ORCH_PUBLIC_URL: ${ORCH_PUBLIC_URL}
+  ORCH_SOLARWINDS_URL: ${ORCH_SOLARWINDS_URL:-}
+  ORCH_SOLARWINDS_USER: ${ORCH_SOLARWINDS_USER:-}
+  ORCH_SOLARWINDS_PASSWORD: ${ORCH_SOLARWINDS_PASSWORD:-}
+  ORCH_SNOW_URL: ${ORCH_SNOW_URL:-}
+  ORCH_SNOW_USER: ${ORCH_SNOW_USER:-}
+  ORCH_SNOW_PASSWORD: ${ORCH_SNOW_PASSWORD:-}
+
+services:
+  postgres:
+    image: rezztor/orchestrator-postgres:${ORCH_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orch
+      POSTGRES_USER: orch
+      POSTGRES_PASSWORD: ${ORCH_DB_OWNER_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [back]
+    healthcheck:
+      test: [CMD, pg_isready, -U, orch, -d, orch]
+      interval: 5s
+      retries: 20
+
+  migrate:  # the owner role: migrates on every start, and runs the administration commands
+    image: rezztor/orchestrator-core:${ORCH_VERSION}
+    command: [python, -m, orchestrator, migrate]
+    environment:
+      ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
+      ORCH_DB_APP_PASSWORD: ${ORCH_DB_APP_PASSWORD}
+      ORCH_DB_APP_URL: postgresql://orch_app:${ORCH_DB_APP_PASSWORD}@postgres:5432/orch
+    networks: [back]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  web:
+    <<: *core
+    environment:
+      <<: *app-env
+      ORCH_WEB_CERT: /certs/tls.crt
+      ORCH_WEB_KEY: /certs/tls.key
+    volumes: [./certs:/certs:ro]
+    ports: ["${ORCH_HTTPS_PORT:-443}:8443"]
+    networks: [back, out]
+    healthcheck:
+      test: [CMD, python, -c, "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8443/healthz', context=ssl._create_unverified_context(), timeout=5)"]
+      interval: 15s
+
+  scheduler:  # recipes on a schedule, and runs whose process died marked FAILED; a second copy is safe
+    <<: *core
+    command: [python, -m, orchestrator, scheduler]
+    environment: *app-env
+    networks: [back, out]
+
+  siem:  # the owner role: it reads every tenant's ledger; a second copy waits as a standby
+    <<: *core
+    profiles: [siem]
+    command: [python, -m, orchestrator, siem-forward]
+    environment:
+      ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
+      ORCH_SIEM_TARGET: ${ORCH_SIEM_TARGET:-}
+    networks: [back, out]
+
+  ansible:  # holds the device credentials (in ./ansible/inventory); the core never sees them
+    image: rezztor/orchestrator-ansible:${ORCH_VERSION}
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      ORCH_ANSIBLE_TOKEN: ${ORCH_ANSIBLE_TOKEN}
+    volumes: [./ansible:/etc/orch:ro]
+    networks: [back, out]
+
+  tofu:  # holds the cloud credentials (ARM_* in ./tofu.env); the core never sees them
+    image: rezztor/orchestrator-tofu:${ORCH_VERSION}
+    profiles: [cloud]
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      ORCH_TOFU_TOKEN: ${ORCH_TOFU_TOKEN:-}
+    env_file: [{path: ./tofu.env, required: false}]
+    volumes: [./tofu-modules:/etc/orch/modules:ro, tofustate:/var/lib/orch-tofu]
+    networks: [back, out]
+
+networks:
+  back: {internal: true}  # no route out: the database, and the core's calls to its executors
+  out: {}
+
+volumes:
+  pgdata:
+  tofustate:

@@ -168,6 +168,15 @@ CREATE TABLE IF NOT EXISTS siem_cursor (
     last_seq bigint NOT NULL DEFAULT 0
 );
 
+-- Failed sign-ins by the names typed, shared by every web process. No tenant column: most attempts name none.
+CREATE TABLE IF NOT EXISTS sign_in_failures (
+    tenant_name text NOT NULL,
+    user_name text NOT NULL,
+    failures int NOT NULL,
+    last_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_name, user_name)
+);
+
 -- A tenant's own skills. One the agent proposes is inert until a tenant administrator approves it.
 CREATE TABLE IF NOT EXISTS skills (
     tenant_id uuid NOT NULL REFERENCES tenants(id),
@@ -242,12 +251,18 @@ CREATE OR REPLACE FUNCTION session_tenant(p_token_hash text) RETURNS uuid
 CREATE OR REPLACE FUNCTION due_schedules() RETURNS TABLE (tenant_id uuid, id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
     AS $$ SELECT tenant_id, id FROM schedules WHERE next_run_at <= now() ORDER BY next_run_at $$;
-REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules() TO orch_app;
+-- Runs still EXECUTING long after any executor would have given up: the process that ran them has gone.
+CREATE OR REPLACE FUNCTION lost_changes(p_hours int) RETURNS TABLE (tenant_id uuid, id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+    AS $$ SELECT tenant_id, id FROM changes WHERE state = 'EXECUTING'
+          AND updated_at < now() - make_interval(hours => p_hours) $$;
+REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules(), lost_changes(int)
+    TO orch_app;
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes, skills, recipes,
-    schedules, webhooks TO orch_app;
+    schedules, webhooks, sign_in_failures TO orch_app;
 GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;

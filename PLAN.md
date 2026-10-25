@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** accepted 2026-10-25; phases 1–4 merged, phase 5 (cloud executor, SolarWinds, ServiceNow, SIEM, ChatOps) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phases 1–5 merged, phase 6 (red-team and eval suites, HA, images and signed release build) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 
@@ -259,9 +259,14 @@ executor)**, **SolarWinds**, **SIEM forward**, **ticketing** (ServiceNow/Jira as
 
 ## 13. Deployment
 
-Docker Compose: `core`, `policy`, `plugin-host`, executors, `postgres` (+pgvector), `runner`,
-local model optional. Air-gapped by default; signed offline updates; nftables guard. HA (two cores, Postgres
-replica) is a later phase.
+Docker Compose (`deploy/compose.yaml`): `postgres`, `migrate`, `web`, `scheduler`, the Ansible executor, and the
+OpenTofu executor and SIEM forwarder as profiles; only the web page publishes a port and the database has no route
+out. The policy engine lives in the core, not a separate service. Releases are built from a pushed tag in a fresh
+clone (`scripts/build_release.sh`): four images in one archive, `SHA256SUMS` signed with Rezztor's Ed25519 release
+key, checked by `scripts/verify_release.sh` before anything is loaded. More than one web process or scheduler can run
+against one database: the sign-in lockout lives in the database, a schedule is claimed before it runs, one SIEM
+forwarder sends at a time, and a run whose process died is marked FAILED after three hours. A PostgreSQL replica and
+failover are the customer's database team's choice; nftables guard and a local model are later.
 
 ## 14. Build approach and roadmap
 

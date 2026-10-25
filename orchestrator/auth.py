@@ -2,15 +2,11 @@
 import hashlib
 import hmac
 import secrets
-import threading
-import time
 
 from . import db
 
 SESSION_HOURS = 8
 SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
-_failures, _lock = {}, threading.Lock()
-# ponytail: failed sign-ins counted in this process's memory; a shared counter when there is more than one web process.
 MAX_FAILURES, LOCKOUT_SECONDS = 5, 300
 
 
@@ -46,11 +42,11 @@ def token_hash(token):
 def sign_in(tenant_name, user_name, password):
     """Return (tenant_id, session token), or None. Every attempt on a real tenant is audited."""
     key = (tenant_name, user_name)
-    with _lock:
-        count, since = _failures.get(key, (0, 0))
-        if count >= MAX_FAILURES and time.monotonic() - since < LOCKOUT_SECONDS:
-            return None
     with db.app() as conn:
+        if conn.execute("SELECT 1 FROM sign_in_failures WHERE tenant_name = %s AND user_name = %s AND failures >= %s "
+                        "AND last_at > now() - make_interval(secs => %s)", (*key, MAX_FAILURES, LOCKOUT_SECONDS)
+                        ).fetchone():
+            return None
         tenant_id = conn.execute("SELECT tenant_id_by_name(%s) AS id", (tenant_name,)).fetchone()["id"]
     if tenant_id is None:
         check_password(password, None)
@@ -66,15 +62,19 @@ def sign_in(tenant_name, user_name, password):
                      "(%s, current_setting('app.tenant_id')::uuid, %s, now() + make_interval(hours => %s))",
                      (token_hash(token), user["id"], SESSION_HOURS))
         db.audit(conn, user_name, "auth.signed_in")
-    with _lock:
-        _failures.pop(key, None)
+    with db.app() as conn:
+        conn.execute("DELETE FROM sign_in_failures WHERE tenant_name = %s AND user_name = %s", key)
     return tenant_id, token
 
 
 def _failed(key):
-    with _lock:
-        count, _ = _failures.get(key, (0, 0))
-        _failures[key] = (count + 1, time.monotonic())
+    """Count a failure; one after the lockout has passed starts the count again."""
+    with db.app() as conn:
+        conn.execute("DELETE FROM sign_in_failures WHERE last_at < now() - make_interval(secs => %s)",
+                     (LOCKOUT_SECONDS,))  # names that were only typed once in a while do not pile up
+        conn.execute("INSERT INTO sign_in_failures (tenant_name, user_name, failures) VALUES (%s, %s, 1) "
+                     "ON CONFLICT (tenant_name, user_name) DO UPDATE SET failures = sign_in_failures.failures + 1, "
+                     "last_at = now()", key)
     return None
 
 

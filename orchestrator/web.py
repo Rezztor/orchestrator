@@ -14,6 +14,8 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import psycopg
+
 from . import auth, changes, db, loop, plugins, policy, recipes, skills
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
@@ -42,6 +44,13 @@ class Handler(BaseHTTPRequestHandler):
         return morsel.value if morsel else None
 
     def do_GET(self):
+        if self.path == "/healthz":  # for a load balancer: this process answers and reaches the database
+            try:
+                with db.app() as conn:
+                    conn.execute("SELECT 1")
+            except psycopg.Error:
+                return self.send(503, {"ok": False})
+            return self.send(200, {"ok": True})
         if self.path in STATIC:
             name, ctype = STATIC[self.path]
             return self.send(200, (Path(__file__).parent / "static" / name).read_bytes(), ctype)

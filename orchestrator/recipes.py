@@ -111,6 +111,7 @@ def scheduler(every_seconds=30):
     while True:
         try:
             run_due()
+            changes.sweep_lost()
         except Exception:  # the database may be restarting: try again next round
             logging.exception("scheduler round failed")
         time.sleep(every_seconds)
