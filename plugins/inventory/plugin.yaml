@@ -1,0 +1,15 @@
+name: inventory
+version: 0.1.0
+capabilities:
+  - id: inventory.devices.list
+    kind: read
+    risk: low
+    handler: list_devices
+    description: List the tenant's devices from the inventory, optionally filtered by site, platform or tag.
+    params:
+      type: object
+      properties:
+        site: {type: string}
+        platform: {type: string}
+        tag: {type: string}
+      additionalProperties: false

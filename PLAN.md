@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** draft 2 for RIfky's review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phase 1 in progress · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 
@@ -281,17 +281,14 @@ job protocol, so each can also run on a customer's segment.
 | 5 | Azure executor, SolarWinds, ticketing (CR source), SIEM, ChatOps approvals | 4 wks |
 | 6 | Hardening: red-team suite (prompt injection corpus, approval replay, plugin escape), eval suite, HA, release build | 3 wks |
 
-## 15. Decisions for RIfky
+## 15. Decisions (RIfky, 2026-10-25)
 
-1. **When the repo goes public**: (a) private until phase 1 runs, then public like netops-eagent **[recommended]**;
-   (b) public now, design only.
-2. **Third-party libraries** (web framework, PostgreSQL driver, model SDKs): (a) allowed as installed dependencies
-   with AGPL-compatible licences, listed in `THIRD-PARTY-NOTICES.md` **[recommended]**; (b) standard library only
-   where possible, our own code for the rest.
-3. **Policy engine**: (a) rules in Python, data in YAML per tenant **[recommended]**; (b) embed OPA/Rego.
-4. **First integration after inventory**: (a) our own Ansible executor **[recommended]**; (b) the device bridge;
-   (c) the NetOps EAgent through its API.
-5. **Product name**: working name "Rezztor Orchestrator", repo `Rezztor/orchestrator`.
+1. **The repo goes public** once phase 1 runs, like netops-eagent; private until then.
+2. **Third-party libraries** are allowed as installed dependencies under AGPL-compatible licences, each listed in
+   `THIRD-PARTY-NOTICES.md`.
+3. **Policy engine**: rules in Python, data in YAML per tenant.
+4. **First integration after inventory**: our own Ansible executor.
+5. **Name**: Rezztor Orchestrator, repo `Rezztor/orchestrator`.
 
 ## Sources (for the ideas only)
 
