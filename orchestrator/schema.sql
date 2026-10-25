@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS devices (
     UNIQUE (tenant_id, name)
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;  -- null: this user cannot sign in with a password
+
+-- A signed-in browser. Only the SHA-256 of the cookie's token is stored.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash text PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at timestamptz NOT NULL
+);
+
 -- Append-only, hash-chained per tenant. Each row's hash covers the previous row's hash and its own content, so an
 -- edit or a deleted row anywhere breaks every hash after it (db.verify_audit).
 CREATE TABLE IF NOT EXISTS audit (
@@ -91,9 +101,26 @@ BEGIN
     ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
     DROP POLICY IF EXISTS tenant_scope ON tenants;
     CREATE POLICY tenant_scope ON tenants USING (id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+    -- Not forced either: session_tenant() below reads it as the owner, before any tenant is known.
+    ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS tenant_scope ON sessions;
+    CREATE POLICY tenant_scope ON sessions
+        USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 END $$;
 
+-- The two lookups that happen before a tenant is known. Each returns one id and nothing else.
+CREATE OR REPLACE FUNCTION tenant_id_by_name(p_name text) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+    AS $$ SELECT id FROM tenants WHERE name = p_name $$;
+CREATE OR REPLACE FUNCTION session_tenant(p_token_hash text) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+    AS $$ SELECT tenant_id FROM sessions WHERE token_hash = p_token_hash AND expires_at > now() $$;
+REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text) TO orch_app;
+
 GRANT SELECT ON tenants TO orch_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices TO orch_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;

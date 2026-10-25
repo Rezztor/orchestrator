@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rezztor Orchestrator</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header><span class="brand">Rezztor Orchestrator</span><span id="who"></span><button id="sign-out" hidden>Sign out</button></header>
+<main>
+  <form id="sign-in" hidden>
+    <h1>Sign in</h1>
+    <label for="tenant">Organisation</label><input id="tenant" autocomplete="organization" required>
+    <label for="user">User name</label><input id="user" autocomplete="username" required>
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+    <p id="sign-in-error" class="error" role="alert"></p>
+  </form>
+  <section id="chat" hidden>
+    <ol id="log" aria-live="polite"></ol>
+    <form id="ask">
+      <label for="prompt" class="visually-hidden">Ask the orchestrator</label>
+      <textarea id="prompt" rows="3" maxlength="8000" placeholder="Ask about your infrastructure, for example: which devices are in Colombo?" required></textarea>
+      <button type="submit">Ask</button>
+    </form>
+  </section>
+</main>
+</body>
+</html>

@@ -25,8 +25,9 @@ def set_state(tenant_id, request_id, actor, state, answer=None, **data):
         db.audit(conn, actor, "request.state", {"request": str(request_id), "state": state, **data})
 
 
-def run(tenant_id, user_name, prompt, chat=model.chat, caps=None, max_steps=8):
+def run(tenant_id, user_name, prompt, chat=None, caps=None, max_steps=8):
     """Answer one prompt for one user of one tenant. Returns (request_id, state, answer)."""
+    chat = chat or model.chat
     caps = plugins.load() if caps is None else caps
     with db.tenant(tenant_id) as conn:
         user = conn.execute("SELECT id FROM users WHERE name = %s", (user_name,)).fetchone()

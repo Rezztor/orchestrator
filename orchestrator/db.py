@@ -39,6 +39,13 @@ def create_tenant(name, admin_name, owner_url=None):
 
 
 @contextmanager
+def app(app_url=None):
+    """The application role with no tenant set: row-level security shows it nothing."""
+    with psycopg.connect(app_url or os.environ["ORCH_DB_APP_URL"], row_factory=dict_row) as conn:
+        yield conn
+
+
+@contextmanager
 def tenant(tenant_id, app_url=None):
     """One transaction scoped to one tenant."""
     tenant_id = str(uuid.UUID(str(tenant_id)))
