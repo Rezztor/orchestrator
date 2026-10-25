@@ -7,11 +7,11 @@ import json
 import os
 import urllib.request
 
-# ponytail: one endpoint per installation; per-tenant routing and pre-call redaction come with the policy engine.
+# shortcut: one endpoint per installation; route per tenant when tenants need different models.
 
 
 def chat(messages, tools):
-    """Send the conversation, return the assistant message dict ({"content", "tool_calls"?})."""
+    """Send the conversation, return the assistant message dict ({"content", "tool_calls"?, "usage"})."""
     body = {"model": os.environ["ORCH_MODEL"], "messages": messages}
     if tools:
         body["tools"] = tools
@@ -21,4 +21,7 @@ def chat(messages, tools):
     req = urllib.request.Request(os.environ["ORCH_MODEL_URL"].rstrip("/") + "/chat/completions",
                                  data=json.dumps(body).encode(), headers=headers)
     with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.load(resp)["choices"][0]["message"]
+        body = json.load(resp)
+    message = body["choices"][0]["message"]
+    message["usage"] = body.get("usage") or {}  # read by the loop's token budget, never sent back
+    return message

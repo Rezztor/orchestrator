@@ -14,6 +14,12 @@ async function show() {
   $("chat").hidden = !signedIn;
   $("sign-out").hidden = !signedIn;
   $("who").textContent = signedIn ? `${me.data.user} (${me.data.role})` : "";
+  const stopped = signedIn && me.data.stopped;
+  $("stopped").hidden = !stopped;
+  $("stopped").textContent = stopped ? `Agent work is stopped: ${stopped}` : "";
+  $("kill").hidden = !(signedIn && me.data.role === "tenant-admin");
+  $("kill").textContent = stopped ? "Resume agent work" : "Stop all agent work";
+  $("kill").dataset.stopped = stopped ? "1" : "";
   (signedIn ? $("prompt") : $("tenant")).focus();
 }
 
@@ -36,6 +42,14 @@ $("sign-in").addEventListener("submit", async (e) => {
 $("sign-out").addEventListener("click", async () => {
   await api("/api/sign-out", {});
   $("log").replaceChildren();
+  show();
+});
+
+$("kill").addEventListener("click", async () => {
+  const stop = !$("kill").dataset.stopped;
+  const reason = stop ? window.prompt("Why are you stopping all agent work?") : null;
+  if (stop && !reason) return;
+  await api("/api/kill-switch", { stop, reason });
   show();
 });
 

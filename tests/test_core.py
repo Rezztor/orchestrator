@@ -13,6 +13,13 @@ def add_device(tenant_id, name, site):
                      "VALUES (current_setting('app.tenant_id')::uuid, %s, '10.0.0.1', 'ios', %s)", (name, site))
 
 
+def set_policy(tenant_id, text):
+    with db.tenant(tenant_id) as conn:
+        conn.execute("INSERT INTO policies (tenant_id, document, set_by) VALUES "
+                     "(current_setting('app.tenant_id')::uuid, %s, 'test') ON CONFLICT (tenant_id) "
+                     "DO UPDATE SET document = EXCLUDED.document", (text,))
+
+
 def tool_call(name, args, call_id="c1"):
     return {"content": None, "tool_calls": [{"id": call_id, "type": "function",
                                              "function": {"name": name, "arguments": json.dumps(args)}}]}
@@ -118,5 +125,6 @@ def test_a_request_always_ends_in_a_state(database):
         raise TimeoutError("model did not answer")
     assert loop.run(t, "alice", "hi", chat=broken)[1:] == ("FAILED", "TimeoutError: model did not answer")
 
+    set_policy(t, "limits: {max_steps: 3}")
     looping = scripted(*[tool_call("inventory__devices__list", {})] * 3)
-    assert loop.run(t, "alice", "hi", chat=looping, max_steps=3)[1:] == ("FAILED", "no answer within 3 steps")
+    assert loop.run(t, "alice", "hi", chat=looping)[1:] == ("FAILED", "no answer within 3 steps")

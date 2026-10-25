@@ -1,0 +1,14 @@
+# The shipped policy is the ceiling. A tenant's own policy can only narrow it: a capability must be allowed by both,
+# anything either denies is denied, and each limit is the lower of the two.
+roles:  # capability patterns each role may use
+  viewer: [inventory.*]
+  operator: [inventory.*, ansible.facts.*]
+  approver: [inventory.*, ansible.facts.*]
+  tenant-admin: ["*"]
+deny: []  # capability patterns nobody may use
+limits:
+  max_steps: 8                # model turns per request
+  max_tool_calls: 20          # tool calls per request
+  max_tokens: 200000          # model tokens per request
+  max_targets_per_call: 50    # items in any list argument (devices, hosts) in one call
+  max_requests_per_hour: 60   # per user

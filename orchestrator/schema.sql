@@ -49,6 +49,35 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at timestamptz NOT NULL
 );
 
+ALTER TABLE requests DROP CONSTRAINT IF EXISTS requests_state_check;
+ALTER TABLE requests ADD CONSTRAINT requests_state_check CHECK (state IN ('INTAKE', 'DISCOVER', 'PLAN', 'POLICY',
+    'APPROVE', 'EXECUTE', 'VERIFY', 'ROLLBACK', 'REPORT', 'DONE', 'FAILED', 'REFUSED'));
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS tokens integer NOT NULL DEFAULT 0;
+
+-- A tenant's own policy (YAML, see policy.py). It can only narrow the shipped one.
+CREATE TABLE IF NOT EXISTS policies (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    document text NOT NULL,
+    set_by text NOT NULL,
+    set_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- A row here stops all agent work in the tenant until it is removed.
+CREATE TABLE IF NOT EXISTS kill_switch (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    reason text NOT NULL,
+    set_by text NOT NULL,
+    set_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- The installation-wide stop: the owner role sets it, the application only reads it.
+CREATE TABLE IF NOT EXISTS installation_kill (
+    only_row boolean PRIMARY KEY DEFAULT true CHECK (only_row),
+    reason text NOT NULL,
+    set_by text NOT NULL,
+    set_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Append-only, hash-chained per tenant. Each row's hash covers the previous row's hash and its own content, so an
 -- edit or a deleted row anywhere breaks every hash after it (db.verify_audit).
 CREATE TABLE IF NOT EXISTS audit (
@@ -89,7 +118,7 @@ CREATE OR REPLACE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit
 DO $$
 DECLARE t text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit'] LOOP
+    FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -120,7 +149,7 @@ CREATE OR REPLACE FUNCTION session_tenant(p_token_hash text) RETURNS uuid
 REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text) TO orch_app;
 
-GRANT SELECT ON tenants TO orch_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions TO orch_app;
+GRANT SELECT ON tenants, installation_kill TO orch_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;
