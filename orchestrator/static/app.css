@@ -38,3 +38,8 @@ button.secondary { background: transparent; color: var(--fg); border: 1px solid 
 select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--fg); }
 h2 { margin: 32px 0 8px; font-size: 1.15rem; }
 #recipe-values { display: grid; gap: 8px; }
+#mfa { max-width: 420px; margin: 40px auto; }
+#mfa-secret { font-size: 1.1rem; letter-spacing: .05em; }
+a { color: var(--accent); }
+.actions a { align-self: center; }
+details.steps { margin-top: 8px; white-space: normal; }

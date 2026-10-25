@@ -37,10 +37,21 @@ def call(url, path, body=None, cookie=None, ctype="application/json"):
         return exc.code, json.load(exc), exc.headers
 
 
-def sign_in(url, password="correct horse battery"):
-    status, _, headers = call(url, "/api/sign-in", {"tenant": "acme", "user": "alice", "password": password})
+def sign_in(url, password="correct horse battery", user="alice", mfa=True):
+    """Sign in, and for an approver or administrator also enrol (or use) the authenticator, unless mfa=False."""
+    status, _, headers = call(url, "/api/sign-in", {"tenant": "acme", "user": user, "password": password})
     cookie = headers.get("Set-Cookie", "")
-    return status, cookie.split(";")[0].split("=", 1)[1] if status == 200 else None, cookie
+    token = cookie.split(";")[0].split("=", 1)[1] if status == 200 else None
+    step = token and call(url, "/api/me", cookie=token)[1]
+    if mfa and step and step.get("mfa"):
+        with db.app() as conn:
+            tenant = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
+        with db.tenant(tenant) as conn:  # every test sign-in is a new code; real ones wait for the next 30 seconds
+            conn.execute("UPDATE users SET totp_last_step = 0 WHERE name = %s", (user,))
+            secret = conn.execute("SELECT coalesce(totp_secret, totp_pending) AS s FROM users WHERE name = %s",
+                                  (user,)).fetchone()["s"]
+        assert call(url, "/api/mfa", {"code": auth.totp(secret, int(time.time()) // 30)}, cookie=token)[0] == 200
+    return status, token, cookie
 
 
 def test_sign_in_ask_and_sign_out(site, monkeypatch):
@@ -65,6 +76,24 @@ def test_wrong_passwords_lock_the_account_for_a_while(site):
         acme = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
     with db.tenant(acme) as conn:
         assert conn.execute("SELECT count(*) AS n FROM audit WHERE kind = 'auth.sign_in_failed'").fetchone()["n"] == 5
+
+
+def test_approvers_and_admins_need_an_authenticator_code(site):
+    _, token, _ = sign_in(site, mfa=False)
+    step = call(site, "/api/me", cookie=token)[1]
+    assert step["mfa"] == "enroll" and step["uri"].startswith("otpauth://totp/") and "stopped" not in step
+    assert call(site, "/api/changes", cookie=token)[0] == 401  # nothing but the code step is open
+    assert call(site, "/api/mfa", {"code": "000000"}, cookie=token)[0] == 401
+    code = auth.totp(step["secret"], int(time.time()) // 30)
+    assert call(site, "/api/mfa", {"code": code}, cookie=token)[0] == 200
+    assert call(site, "/api/changes", cookie=token)[0] == 200
+
+    _, again, _ = sign_in(site, mfa=False)
+    assert call(site, "/api/me", cookie=again)[1] == {"user": "alice", "role": "tenant-admin", "mfa": "code"}
+    assert call(site, "/api/mfa", {"code": code}, cookie=again)[0] == 401  # a code counts once
+    for _ in range(auth.MAX_FAILURES - 1):
+        call(site, "/api/mfa", {"code": "123456"}, cookie=again)
+    assert call(site, "/api/me", cookie=again)[0] == 401  # too many wrong codes end the session
 
 
 def test_requests_that_are_not_json_or_not_signed_in_are_refused(site):
@@ -97,8 +126,7 @@ def test_only_a_tenant_admin_can_stop_agent_work(site):
     with db.tenant(acme) as conn:
         conn.execute("INSERT INTO users (tenant_id, name, role) VALUES (%s, 'olga', 'operator')", (acme,))
     auth.set_password(acme, "olga", "another good password")
-    _, _, headers = call(site, "/api/sign-in", {"tenant": "acme", "user": "olga", "password": "another good password"})
-    olga = headers["Set-Cookie"].split(";")[0].split("=", 1)[1]
+    olga = sign_in(site, "another good password", "olga")[1]
 
     assert call(site, "/api/kill-switch", {"stop": True, "reason": "x"}, cookie=olga)[0] == 403
     assert call(site, "/api/kill-switch", {"stop": True}, cookie=token)[0] == 400
@@ -118,8 +146,7 @@ def test_people_approve_and_run_a_change_from_the_page(site, monkeypatch):
     add_user(tenant, "ava", "approver")
     auth.set_password(tenant, "ava", "correct horse battery")
     alice = sign_in(site)[1]
-    ava = call(site, "/api/sign-in", {"tenant": "acme", "user": "ava", "password": "correct horse battery"})[2] \
-        .get("Set-Cookie").split(";")[0].split("=", 1)[1]
+    ava = sign_in(site, user="ava")[1]
 
     monkeypatch.setattr(model, "chat", scripted(tool_call("ansible__test__set", {"devices": ["core-sw1"]}),
                                                 {"content": "Planned."}))
@@ -151,8 +178,7 @@ def test_recipes_run_and_only_an_admin_decides_on_skills(site, monkeypatch):
         skills.add(conn, "agent", skills.check("vlan-audit", "Audit VLANs.", "1. List devices.", []), "induced",
                    "proposed")
     alice = sign_in(site)[1]
-    oscar = call(site, "/api/sign-in", {"tenant": "acme", "user": "oscar", "password": "correct horse battery"})[2] \
-        .get("Set-Cookie").split(";")[0].split("=", 1)[1]
+    oscar = sign_in(site, user="oscar")[1]
 
     library = call(site, "/api/library", cookie=oscar)[1]
     assert library["recipes"][0]["params"] == ["site"] and library["skills"][0]["state"] == "proposed"

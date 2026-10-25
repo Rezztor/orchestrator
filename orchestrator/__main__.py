@@ -7,7 +7,10 @@
   device-add TENANT_ID NAME ADDRESS PLATFORM [SITE]
   device-critical TENANT_ID NAME yes|no          a change to a critical device is one risk class higher
   ask TENANT_ID USER PROMPT
-  audit-verify TENANT_ID
+  audit-verify TENANT_ID                         the hash chain, and the signed anchors when ORCH_ANCHOR_PUB is set
+  oidc-set TENANT_ID ISSUER CLIENT_ID SECRET_ENV [CLAIM]
+                                                 directory sign-in; SECRET_ENV names the client secret's variable
+  mfa-reset TENANT_ID USER                       forget a lost authenticator; the next sign-in enrols a new one
   policy-set TENANT_ID FILE                      the tenant's policy (YAML); it can only narrow the shipped one
   policy-show TENANT_ID                          the effective policy
   stop TENANT_ID REASON | resume TENANT_ID       the tenant's kill switch
@@ -28,7 +31,7 @@ import sys
 
 import psycopg
 
-from . import auth, db, evals, loop, notify, policy, recipes, siem, skills
+from . import anchors, auth, db, evals, loop, oidc, notify, policy, recipes, siem, skills
 
 
 def main(argv):
@@ -64,8 +67,16 @@ def main(argv):
         case ["audit-verify", tenant_id]:
             with db.tenant(tenant_id) as conn:
                 broken = db.verify_audit(conn)
+                checked, bad = (anchors.verify(conn, tenant_id, os.environ["ORCH_ANCHOR_PUB"])
+                                if os.environ.get("ORCH_ANCHOR_PUB") else (0, None))
             print("audit chain holds" if broken is None else f"audit chain broken at seq {broken}")
-            return 0 if broken is None else 1
+            if os.environ.get("ORCH_ANCHOR_PUB"):
+                print(f"{checked} signed anchors hold" if bad is None else f"signed anchor at seq {bad} does not hold")
+            return 0 if broken is None and bad is None else 1
+        case ["oidc-set", tenant_id, issuer, client_id, secret_env, *claim]:
+            oidc.set_config(tenant_id, issuer, client_id, secret_env, *claim[:1])
+        case ["mfa-reset", tenant_id, user]:
+            auth.reset_mfa(tenant_id, user)
         case ["policy-set", tenant_id, path]:
             text = open(path).read()
             policy.parse(text)

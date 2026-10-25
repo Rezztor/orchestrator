@@ -7,31 +7,35 @@ python -m orchestrator.web
 """
 import json
 import os
+import re
 import ssl
 import threading
+import traceback
 import uuid
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import psycopg
 
-from . import auth, changes, db, loop, plugins, policy, recipes, skills
+from . import auth, changes, db, loop, oidc, plugins, policy, recipes, reports, skills
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
           "/app.css": ("app.css", "text/css")}
 COOKIE = "orch_session"
+ROUTE = re.compile(r"/api/(requests|changes/evidence)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 HEADERS = {"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; form-action 'self'",
            "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
 
 
 class Handler(BaseHTTPRequestHandler):
-    def send(self, code, body, ctype="application/json", cookie=None):
+    def send(self, code, body, ctype="application/json", cookie=None, headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        for k, v in HEADERS.items():
+        for k, v in {**HEADERS, **(headers or {})}.items():
             self.send_header(k, v)
         if cookie is not None:
             self.send_header("Set-Cookie", f"{COOKIE}={cookie}; Path=/; HttpOnly; Secure; SameSite=Strict"
@@ -43,7 +47,47 @@ class Handler(BaseHTTPRequestHandler):
         morsel = SimpleCookie(self.headers.get("Cookie", "")).get(COOKIE)
         return morsel.value if morsel else None
 
+    def me(self):
+        """The signed-in user, or None; a session still waiting for its authenticator code counts as None."""
+        me = auth.session(self.token())
+        return me if me and me["mfa_ok"] else None
+
+    def redirect(self, location, cookies=()):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        for k, v in HEADERS.items():
+            self.send_header(k, v)
+        for cookie in cookies:
+            self.send_header("Set-Cookie", cookie)
+        self.end_headers()
+
+    def directory_sign_in(self, url):
+        """GET /oidc/start?tenant=NAME and the directory's GET /oidc/callback?state=...&code=..."""
+        query = dict(parse_qsl(url.query))
+        try:
+            if url.path == "/oidc/start":
+                location, browser = oidc.start(query.get("tenant", ""))
+                # Lax, not Strict: the directory's redirect back is a cross-site navigation that must carry it
+                return self.redirect(location, [f"orch_oidc={browser}; Path=/oidc; HttpOnly; Secure; SameSite=Lax; "
+                                                "Max-Age=600"])
+            if "error" in query:
+                raise PermissionError(f"the directory refused: {query.get('error_description') or query['error']}")
+            morsel = SimpleCookie(self.headers.get("Cookie", "")).get("orch_oidc")
+            _, token = oidc.finish(query.get("state"), query.get("code", ""), morsel and morsel.value)
+            return self.redirect("/", [f"{COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Strict",
+                                       "orch_oidc=; Path=/oidc; HttpOnly; Secure; SameSite=Lax; Max-Age=0"])
+        except (LookupError, PermissionError) as exc:
+            return self.send(400, f"Directory sign-in did not work: {exc}\n".encode(), "text/plain; charset=utf-8")
+        except Exception:  # the directory is unreachable or answered nonsense; the reason goes to the log
+            self.log_error("directory sign-in failed: %r", traceback.format_exc())
+            return self.send(502, b"Directory sign-in did not work: the directory could not be reached.\n",
+                             "text/plain; charset=utf-8")
+
     def do_GET(self):
+        url = urlsplit(self.path)
+        if url.path in ("/oidc/start", "/oidc/callback"):
+            return self.directory_sign_in(url)
         if self.path == "/healthz":  # for a load balancer: this process answers and reaches the database
             try:
                 with db.app() as conn:
@@ -58,16 +102,33 @@ class Handler(BaseHTTPRequestHandler):
             me = auth.session(self.token())
             if not me:
                 return self.send(401, {"error": "sign in"})
+            if not me["mfa_ok"]:
+                return self.send(200, {"user": me["user"], "role": me["role"], **auth.mfa_step(me)})
             with db.tenant(me["tenant_id"]) as conn:
                 return self.send(200, {**me, "stopped": policy.stopped(conn)})
         if self.path == "/api/changes":
-            me = auth.session(self.token())
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             with db.tenant(me["tenant_id"]) as conn:
                 return self.send(200, {"changes": changes.listing(conn)})
+        if match := ROUTE.fullmatch(self.path):
+            me = self.me()
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            kind, item = match.group(1), uuid.UUID(match.group(2))
+            try:
+                with db.tenant(me["tenant_id"]) as conn:
+                    if kind == "requests":
+                        return self.send(200, reports.trajectory(conn, me, item))
+                    return self.send(200, json.dumps(reports.evidence(conn, me, item), default=str, indent=1).encode(),
+                                     headers={"Content-Disposition": f'attachment; filename="change-{item}.json"'})
+            except PermissionError as exc:
+                return self.send(403, {"error": str(exc)})
+            except LookupError as exc:
+                return self.send(404, {"error": str(exc)})
         if self.path == "/api/library":
-            me = auth.session(self.token())
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             with db.tenant(me["tenant_id"]) as conn:
@@ -96,11 +157,15 @@ class Handler(BaseHTTPRequestHandler):
             if not signed_in:
                 return self.send(401, {"error": "Those details did not sign you in."})
             return self.send(200, {"ok": True}, cookie=signed_in[1])
+        if self.path == "/api/mfa":
+            if not auth.check_code(self.token(), body.get("code")):
+                return self.send(401, {"error": "That code did not match. Use the newest code your app shows."})
+            return self.send(200, {"ok": True})
         if self.path == "/api/sign-out":
             auth.sign_out(self.token())
             return self.send(200, {"ok": True}, cookie="")
         if self.path == "/api/ask":
-            me = auth.session(self.token())
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             prompt = body.get("prompt")
@@ -111,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
                 answer = f"This request could not be completed. Reference {request_id}."
             return self.send(200, {"request": request_id, "state": state, "answer": answer})
         if self.path == "/api/kill-switch":
-            me = auth.session(self.token())
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             if me["role"] != "tenant-admin":
@@ -124,7 +189,7 @@ class Handler(BaseHTTPRequestHandler):
             with db.tenant(me["tenant_id"]) as conn:
                 return self.send(200, {"stopped": policy.stopped(conn)})
         if self.path in ("/api/skills/decide", "/api/recipes/run"):
-            me = auth.session(self.token())
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             name = body.get("name")
@@ -145,8 +210,8 @@ class Handler(BaseHTTPRequestHandler):
             if state == "FAILED":
                 answer = f"This request could not be completed. Reference {request_id}."
             return self.send(200, {"request": request_id, "state": state, "answer": answer})
-        if self.path in ("/api/changes/decide", "/api/changes/run", "/api/changes/record"):
-            me = auth.session(self.token())
+        if self.path in ("/api/changes/decide", "/api/changes/run", "/api/changes/record", "/api/changes/break-glass"):
+            me = self.me()
             if not me:
                 return self.send(401, {"error": "sign in"})
             try:
@@ -159,6 +224,11 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send(400, {"error": "number is required"})
                     changes.set_record(me["tenant_id"], me["user"], change_id, body["number"].strip().upper())
                     return self.send(200, {"ok": True})
+                if self.path == "/api/changes/break-glass":
+                    if not isinstance(body.get("digest"), str):
+                        return self.send(400, {"error": "the plan's digest is required"})
+                    return self.send(200, {"state": changes.break_glass(me["tenant_id"], me["user"], change_id,
+                                                                         body["digest"], body.get("reason"))})
                 if self.path == "/api/changes/run":
                     change = changes.start(me["tenant_id"], me["user"], change_id)
                     # the executor can take many minutes; the page polls /api/changes for the outcome

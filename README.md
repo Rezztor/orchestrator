@@ -104,6 +104,27 @@ Phase 6 hardening:
   A release: `scripts/build_release.sh v0.6.0 release.key` builds from the pushed tag in a fresh clone; the customer
   runs `verify_release.sh RELEASE_DIR rezztor-release.pub`, then `docker load -i RELEASE_DIR/orchestrator-*-images.tar.gz`.
 
+After the roadmap, the plan's remaining controls:
+
+- **Authenticator codes**: approvers and tenant administrators give a six-digit code (any TOTP app) after the password
+  or the directory; the first sign-in shows a key to enrol. A code counts once, five wrong ones end the session, and
+  `mfa-reset TENANT USER` forgets a lost phone.
+- **Directory sign-in** (OpenID Connect: Entra ID, Okta, Keycloak and the like): `oidc-set TENANT ISSUER CLIENT_ID
+  SECRET_ENV [CLAIM]`, the client secret in that environment variable (`deploy/oidc.env`), and
+  `ORCH_PUBLIC_URL/oidc/callback` registered as the redirect URI. The user must already exist in the tenant (matched
+  on `preferred_username` unless another claim is named); the role stays the tenant's.
+- **Break-glass**: a tenant administrator (not the requester) can approve a change alone with a reason; it may run
+  outside the change window, never in a freeze and never when destructive. Every webhook hears of it and the ledger and
+  the card flag it.
+- **Freeze**: `freeze: [{start: "2026-12-20T00:00", end: "2027-01-05T00:00", reason: Year end}]` in the policy (UTC):
+  nothing runs inside one.
+- **Budgets**: `max_seconds` per request and `max_tokens_per_day` per tenant join the step, token and tool-call limits.
+- **Signed anchors**: with `ORCH_ANCHOR_KEY` (Ed25519 PEM) the scheduler signs each tenant's newest ledger row hourly
+  into the ledger itself, and so into the SIEM; `audit-verify` checks them with `ORCH_ANCHOR_PUB`.
+- **Steps and evidence**: each answer on the page opens its steps from the ledger; a finished change exports its
+  evidence (request, plan, approvals, run, ledger rows, chain state) as JSON for an auditor.
+- **CEF**: `ORCH_SIEM_FORMAT=cef` sends ArcSight CEF instead of JSON.
+
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
 capability, device names and, for a playbook, its name and variables. A playbook reads its variables as
 `{{ orch.NAME }}`; values are plain text, numbers or true/false, never templates:

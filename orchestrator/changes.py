@@ -106,6 +106,42 @@ def decide(tenant_id, user_name, change_id, digest, approve, reason=None):
     return state
 
 
+def break_glass(tenant_id, user_name, change_id, digest, reason):
+    """A tenant administrator approves alone in an emergency: the change may run outside its window, never in a
+    freeze, never a destructive one and never by the person who asked. Flagged in the ledger and sent to every
+    webhook."""
+    if not (isinstance(reason, str) and len(reason.strip()) >= 10):
+        raise ValueError("break-glass needs a reason of at least 10 characters")
+    reason = reason.strip()[:500]
+    with db.tenant(tenant_id) as conn:
+        user = user_row(conn, user_name)
+        if user["role"] != "tenant-admin":
+            raise PermissionError("only a tenant administrator can break glass")
+        change = conn.execute("SELECT *, expires_at <= now() AS expired FROM changes WHERE id = %s FOR UPDATE",
+                              (change_id,)).fetchone()
+        if change is None:
+            raise LookupError("no such change")
+        if change["requested_by"] == user["id"]:
+            raise PermissionError("you asked for this change; someone else must approve it")
+        if change["state"] != "PLANNED" or change["expired"]:
+            raise Refused(f"this change is {shown_state(change)}, not waiting for a decision")
+        if change["risk"] == "destructive":
+            raise Refused("a destructive change always needs its approvers; break-glass cannot replace them")
+        if digest != change["digest"]:
+            raise Refused("this is not the plan you were shown; reload it")
+        if not conn.execute(
+                "INSERT INTO approvals (change_id, tenant_id, user_id, digest, decision, reason) VALUES "
+                "(%s, current_setting('app.tenant_id')::uuid, %s, %s, 'approve', %s) ON CONFLICT DO NOTHING",
+                (change_id, user["id"], digest, "BREAK-GLASS: " + reason)).rowcount:
+            raise Refused("you have already decided on this change")
+        conn.execute("UPDATE changes SET state = 'APPROVED', break_glass = %s, updated_at = now() WHERE id = %s",
+                     (reason, change_id))
+        db.audit(conn, user_name, "change.break_glass", {"change": str(change_id), "digest": digest, "reason": reason})
+    notify.send(tenant_id, "change.break_glass", f"BREAK-GLASS: {user_name} approved {change['capability']} alone: "
+                f"{reason}", change=str(change_id))
+    return "APPROVED"
+
+
 def set_record(tenant_id, user_name, change_id, number):
     """Attach a change record number (the requester or an approver) while the change has not run."""
     if not tickets.NUMBER.fullmatch(number):
@@ -139,7 +175,10 @@ def start(tenant_id, user_name, change_id):
         pol = policy.for_tenant(conn)
         if kill := policy.stopped(conn):
             raise Refused(f"agent work is stopped: {kill}")
-        if not policy.window_open(pol, datetime.now(timezone.utc)):
+        now = datetime.now(timezone.utc)
+        if freeze := policy.frozen(pol, now):
+            raise Refused(f"changes are frozen: {freeze}")
+        if not change["break_glass"] and not policy.window_open(pol, now):
             raise Refused("the change window is closed")
         if change["risk"] in pol["change_record"]:
             if not change["change_record"]:
@@ -199,14 +238,16 @@ def sweep_lost():
     return len(lost)
 
 
-def listing(conn):
-    """The tenant's 50 latest changes, as the page shows them."""
+def listing(conn, change_id=None):
+    """The tenant's 50 latest changes (or the one named), as the page shows them."""
     rows = conn.execute(
         "SELECT c.id, c.capability, c.args, c.plan, c.digest, c.risk, c.approvals_needed, c.review, c.change_record, "
+        "c.break_glass, "
         "c.result, c.created_at, c.expires_at, u.name AS requested_by, CASE WHEN c.state IN ('PLANNED', 'APPROVED') "
         "AND c.expires_at <= now() THEN 'EXPIRED' ELSE c.state END AS state, "
         "coalesce((SELECT json_agg(json_build_object('user', d.name, 'decision', a.decision, 'reason', a.reason) "
         "ORDER BY a.at) FROM approvals a JOIN users d ON d.id = a.user_id WHERE a.change_id = c.id), '[]') "
         "AS decisions "
-        "FROM changes c JOIN users u ON u.id = c.requested_by ORDER BY c.created_at DESC LIMIT 50").fetchall()
+        "FROM changes c JOIN users u ON u.id = c.requested_by WHERE %s::uuid IS NULL OR c.id = %s::uuid "
+        "ORDER BY c.created_at DESC LIMIT 50", (change_id, change_id)).fetchall()
     return [{**r, "args": guard.redact(r["args"])} for r in rows]

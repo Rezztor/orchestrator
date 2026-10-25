@@ -9,7 +9,7 @@ import time
 import yaml
 from psycopg.types.json import Jsonb
 
-from . import changes, db, loop
+from . import anchors, changes, db, loop
 
 PARAM = re.compile(r"{([a-z_][a-z0-9_]{0,31})}")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -112,6 +112,7 @@ def scheduler(every_seconds=30):
         try:
             run_due()
             changes.sweep_lost()
+            anchors.anchor_all()
         except Exception:  # the database may be restarting: try again next round
             logging.exception("scheduler round failed")
         time.sleep(every_seconds)

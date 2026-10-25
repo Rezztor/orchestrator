@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** accepted 2026-10-25; phases 1–5 merged, phase 6 (red-team and eval suites, HA, images and signed release build) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phases 1–6 merged; the gaps the plan still named are being closed (see the README) · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 

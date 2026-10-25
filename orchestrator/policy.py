@@ -3,7 +3,7 @@
 Decided by code from the shipped policy, the tenant's policy and the plugin manifest; never by the model.
 """
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -25,8 +25,8 @@ def parse(text):
     """Validate a tenant policy document. Raises ValueError with the first problem found."""
     doc = yaml.safe_load(text) or {}
     if not isinstance(doc, dict) or set(doc) - {"roles", "deny", "limits", "approvals", "change_window",
-                                                "change_record"}:
-        raise ValueError("a policy has only roles, deny, limits, approvals, change_record and change_window")
+                                                "change_record", "freeze"}:
+        raise ValueError("a policy has only roles, deny, limits, approvals, change_record, change_window and freeze")
     roles, deny, limits = doc.get("roles", {}), doc.get("deny", []), doc.get("limits", {})
     approvals, window, record = doc.get("approvals", {}), doc.get("change_window"), doc.get("change_record", [])
     if not (isinstance(roles, dict) and set(roles) <= set(SHIPPED["roles"])
@@ -47,8 +47,20 @@ def parse(text):
             and isinstance(window["days"], list) and window["days"] and set(window["days"]) <= set(DAYS)
             and all(isinstance(window[k], str) and HHMM.fullmatch(window[k]) for k in ("start", "end"))):
         raise ValueError(f"change_window is {{days: [{', '.join(DAYS)}], start: HH:MM, end: HH:MM}} in UTC")
+    freeze = doc.get("freeze", [])
+    try:
+        assert isinstance(freeze, list)
+        freeze = [{"start": utc(f["start"]), "end": utc(f["end"]), "reason": str(f["reason"])} for f in freeze]
+        assert all(f["start"] < f["end"] and set(f0) == {"start", "end", "reason"}
+                   for f, f0 in zip(freeze, doc.get("freeze", [])))
+    except (AssertionError, KeyError, TypeError, ValueError):
+        raise ValueError('freeze lists {start: "YYYY-MM-DDTHH:MM", end: ..., reason: ...} in UTC, start before end')
     return {"roles": roles, "deny": deny, "limits": limits, "approvals": approvals, "change_window": window,
-            "change_record": record}
+            "change_record": record, "freeze": freeze}
+
+
+def utc(text):
+    return datetime.fromisoformat(str(text)).replace(tzinfo=timezone.utc)
 
 
 def effective(tenant_text=None):
@@ -58,7 +70,8 @@ def effective(tenant_text=None):
             "limits": {k: min(v, tenant["limits"].get(k, v)) for k, v in SHIPPED["limits"].items()},
             "approvals": {k: max(v, tenant["approvals"].get(k, v)) for k, v in SHIPPED["approvals"].items()},
             "windows": [w for w in (SHIPPED["change_window"], tenant["change_window"]) if w],
-            "change_record": sorted(set(SHIPPED["change_record"]) | set(tenant["change_record"]))}
+            "change_record": sorted(set(SHIPPED["change_record"]) | set(tenant["change_record"])),
+            "freeze": parse(yaml.safe_dump({"freeze": SHIPPED["freeze"]}))["freeze"] + tenant["freeze"]}
 
 
 def for_tenant(conn):
@@ -108,3 +121,8 @@ def window_open(pol, now):
             return day in w["days"] and w["start"] <= t < w["end"]
         return (day in w["days"] and t >= w["start"]) or (yesterday in w["days"] and t < w["end"])
     return all(inside(w) for w in pol["windows"])
+
+
+def frozen(pol, now):
+    """The reason of the freeze `now` (UTC) falls in, or None."""
+    return next((f["reason"] for f in pol["freeze"] if f["start"] <= now < f["end"]), None)
