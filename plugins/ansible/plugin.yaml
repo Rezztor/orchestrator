@@ -1,0 +1,14 @@
+name: ansible
+version: 0.1.0
+capabilities:
+  - id: ansible.facts.read
+    kind: read
+    risk: low
+    handler: read_facts
+    description: Read basic facts (hostname, OS or network OS version, model, serial) from inventory devices through the Ansible executor.
+    params:
+      type: object
+      properties:
+        devices: {type: array, items: {type: string}, description: Device names from the inventory, at most 50.}
+      required: [devices]
+      additionalProperties: false
