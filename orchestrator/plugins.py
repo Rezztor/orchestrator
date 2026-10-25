@@ -6,6 +6,11 @@ is not in it does not exist, and its `params` schema is checked before the handl
 approved digest and the same arguments (see changes.py).
 """
 import importlib.util
+import json
+import os
+import ssl
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -66,3 +71,26 @@ def find(caps, name):
     if cap is None:
         raise Refused(f"no capability {name!r}")
     return cap
+
+
+def post_job(prefix, body, timeout):
+    """POST a job to an executor configured by PREFIX_URL, PREFIX_TOKEN and optional PREFIX_CA. Returns its JSON."""
+    req = urllib.request.Request(
+        os.environ[f"{prefix}_URL"].rstrip("/") + "/v1/jobs", data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ[f"{prefix}_TOKEN"]})
+    ctx = ssl.create_default_context(cafile=os.environ.get(f"{prefix}_CA"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise Refused(f"executor answered {exc.code}: {exc.read()[:300].decode(errors='replace')}")
+
+
+def known_devices(conn, devices, most=50):
+    """Refuse unless every name is one of this tenant's devices: an executor only ever hears of the tenant's own."""
+    if not 0 < len(devices) <= most:
+        raise Refused(f"ask for 1 to {most} devices at a time")
+    found = {r["name"] for r in conn.execute("SELECT name FROM devices WHERE name = ANY(%s::text[])", (devices,))}
+    unknown = sorted(set(devices) - found)
+    if unknown:
+        raise Refused(f"not in this tenant's inventory: {', '.join(unknown)}")

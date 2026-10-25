@@ -24,10 +24,11 @@ def positive(value):
 def parse(text):
     """Validate a tenant policy document. Raises ValueError with the first problem found."""
     doc = yaml.safe_load(text) or {}
-    if not isinstance(doc, dict) or set(doc) - {"roles", "deny", "limits", "approvals", "change_window"}:
-        raise ValueError("a policy has only roles, deny, limits, approvals and change_window")
+    if not isinstance(doc, dict) or set(doc) - {"roles", "deny", "limits", "approvals", "change_window",
+                                                "change_record"}:
+        raise ValueError("a policy has only roles, deny, limits, approvals, change_record and change_window")
     roles, deny, limits = doc.get("roles", {}), doc.get("deny", []), doc.get("limits", {})
-    approvals, window = doc.get("approvals", {}), doc.get("change_window")
+    approvals, window, record = doc.get("approvals", {}), doc.get("change_window"), doc.get("change_record", [])
     if not (isinstance(roles, dict) and set(roles) <= set(SHIPPED["roles"])
             and all(isinstance(p, list) and all(isinstance(x, str) for x in p) for p in roles.values())):
         raise ValueError(f"roles maps {', '.join(SHIPPED['roles'])} to lists of capability patterns")
@@ -39,12 +40,15 @@ def parse(text):
     if not (isinstance(approvals, dict) and set(approvals) <= set(RISKS)
             and all(positive(v) for v in approvals.values())):
         raise ValueError(f"approvals are positive whole numbers for {', '.join(RISKS)}")
+    if not (isinstance(record, list) and set(record) <= set(RISKS)):
+        raise ValueError(f"change_record lists risk classes: {', '.join(RISKS)}")
     if window is not None and not (
             isinstance(window, dict) and set(window) == {"days", "start", "end"}
             and isinstance(window["days"], list) and window["days"] and set(window["days"]) <= set(DAYS)
             and all(isinstance(window[k], str) and HHMM.fullmatch(window[k]) for k in ("start", "end"))):
         raise ValueError(f"change_window is {{days: [{', '.join(DAYS)}], start: HH:MM, end: HH:MM}} in UTC")
-    return {"roles": roles, "deny": deny, "limits": limits, "approvals": approvals, "change_window": window}
+    return {"roles": roles, "deny": deny, "limits": limits, "approvals": approvals, "change_window": window,
+            "change_record": record}
 
 
 def effective(tenant_text=None):
@@ -53,7 +57,8 @@ def effective(tenant_text=None):
             "deny": SHIPPED["deny"] + tenant["deny"],
             "limits": {k: min(v, tenant["limits"].get(k, v)) for k, v in SHIPPED["limits"].items()},
             "approvals": {k: max(v, tenant["approvals"].get(k, v)) for k, v in SHIPPED["approvals"].items()},
-            "windows": [w for w in (SHIPPED["change_window"], tenant["change_window"]) if w]}
+            "windows": [w for w in (SHIPPED["change_window"], tenant["change_window"]) if w],
+            "change_record": sorted(set(SHIPPED["change_record"]) | set(tenant["change_record"]))}
 
 
 def for_tenant(conn):

@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** accepted 2026-10-25; phases 1–3 merged, phase 4 (skills, recipes, scheduler, specialists, reviewer) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phases 1–4 merged, phase 5 (cloud executor, SolarWinds, ServiceNow, SIEM, ChatOps) in review · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 

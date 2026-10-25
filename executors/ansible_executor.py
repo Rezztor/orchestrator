@@ -18,18 +18,18 @@ run (nothing may be left to change) and runs the rollback playbook when the appl
 python -m executors.ansible_executor
 """
 import difflib
-import hmac
 import json
 import os
 import re
-import ssl
 import subprocess
 import tempfile
 from hashlib import sha256
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import yaml
+
+from . import service
+from .service import JobHandler
 
 CALLBACKS = Path(__file__).with_name("ansible_callbacks")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # no pattern characters: a name selects exactly one host
@@ -176,52 +176,22 @@ def playbook_job(body, inventory, folder):
         return {"outcome": "rolled_back" if all_ok(out["rollback"]) else "rollback_failed", **out}
 
 
-class Handler(BaseHTTPRequestHandler):
-    token = inventory = playbooks = None
+class Handler(JobHandler):
+    inventory = playbooks = None
 
-    def reply(self, code, body):
-        data = json.dumps(body, default=str).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def do_POST(self):
-        if self.path != "/v1/jobs":
-            return self.reply(404, {"error": "not found"})
-        if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), f"Bearer {self.token}".encode()):
-            return self.reply(401, {"error": "bad job token"})
-        length = int(self.headers.get("Content-Length") or 0)
-        if not 0 < length <= 65536:
-            return self.reply(413, {"error": "body must be 1 byte to 64 KiB"})
-        try:
-            body = json.loads(self.rfile.read(length))
-            capability = body.get("capability")
-            if capability == "ansible.playbook.run":
-                return self.reply(200, playbook_job(body, self.inventory, self.playbooks))
-            if capability == "ansible.playbooks.list":
-                return self.reply(200, {"playbooks": list_playbooks(self.playbooks) if self.playbooks else []})
-            return self.reply(200, {"hosts": run_job(capability, body.get("devices"), self.inventory)})
-        except (ValueError, AttributeError) as exc:
-            return self.reply(400, {"error": str(exc)})
-        except (RuntimeError, subprocess.TimeoutExpired) as exc:
-            return self.reply(502, {"error": str(exc)})
+    def handle_job(self, body):
+        capability = body.get("capability")
+        if capability == "ansible.playbook.run":
+            return playbook_job(body, self.inventory, self.playbooks)
+        if capability == "ansible.playbooks.list":
+            return {"playbooks": list_playbooks(self.playbooks) if self.playbooks else []}
+        return {"hosts": run_job(capability, body.get("devices"), self.inventory)}
 
 
 def serve():
-    Handler.token = os.environ["ORCH_ANSIBLE_TOKEN"]
     Handler.inventory = os.environ["ORCH_ANSIBLE_INVENTORY"]
     Handler.playbooks = os.environ.get("ORCH_ANSIBLE_PLAYBOOKS")
-    if len(Handler.token) < 32:
-        raise SystemExit("ORCH_ANSIBLE_TOKEN must be at least 32 characters")
-    host, port = os.environ.get("ORCH_ANSIBLE_LISTEN", "127.0.0.1:8470").rsplit(":", 1)
-    server = ThreadingHTTPServer((host, int(port)), Handler)
-    if os.environ.get("ORCH_ANSIBLE_CERT"):
-        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        ctx.load_cert_chain(os.environ["ORCH_ANSIBLE_CERT"], os.environ["ORCH_ANSIBLE_KEY"])
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
-    server.serve_forever()
+    service.serve(Handler, "ORCH_ANSIBLE", "127.0.0.1:8470")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,8 @@ def test_a_role_gets_only_its_capabilities_and_a_tenant_can_only_narrow(database
 
     chat = recording(tool_call("ansible__facts__read", {"devices": ["core-sw1"]}), {"content": "no"})
     loop.run(t, "vic", "facts for core-sw1", chat=chat)
-    assert offered(chat) == ["agents__delegate", "inventory__devices__list", "skills__read"]
+    assert offered(chat) == ["agents__delegate", "inventory__devices__list", "skills__read",
+                            "solarwinds__nodes__status"]
     assert "viewer role may not use ansible.facts.read" in last_tool_message(chat)["refused"]
 
     set_policy(t, "roles: {viewer: [inventory.*, ansible.*]}\ndeny: [inventory.devices.*]")  # tries to widen
@@ -97,15 +98,13 @@ def test_the_kill_switch_stops_new_and_running_requests(database):
     t = db.create_tenant("acme", "alice")
 
     def stop_mid_run(messages, tools):
-        with db.tenant(t) as conn:
-            loop.set_kill_switch(conn, "alice", "suspicious behaviour")
+        loop.set_kill_switch(t, "alice", "suspicious behaviour")
         return tool_call("inventory__devices__list", {})
     assert loop.run(t, "alice", "list", chat=stop_mid_run)[1:] == \
         ("FAILED", "stopped by the kill switch: suspicious behaviour")
     assert loop.run(t, "alice", "list", chat=scripted())[1] == "REFUSED"
 
-    with db.tenant(t) as conn:
-        loop.set_kill_switch(conn, "alice", None)
+    loop.set_kill_switch(t, "alice", None)
     with psycopg.connect(database, autocommit=True) as conn:
         conn.execute("INSERT INTO installation_kill (reason, set_by) VALUES ('maintenance', 'test')")
     assert loop.run(t, "alice", "list", chat=scripted())[1:] == ("REFUSED", "Agent work is stopped: maintenance")

@@ -3,9 +3,10 @@
 The enterprise agent that takes a prompt and orchestrates infrastructure and cloud work across a customer's estate
 and Rezztor's products: discover, plan, get approval, execute through plugins, verify, report.
 
-Phases 1 to 4: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
+Phases 1 to 5: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
 Ansible facts and reviewed Ansible playbooks through our own executor), the policy engine and guardrails, the change
-path with approvals, skills, recipes and schedules, specialist sub-agents and a change reviewer, and web sign-in.
+path with approvals, skills, recipes and schedules, specialist sub-agents and a change reviewer, web sign-in, and the
+integrations below.
 
 ## Run it
 
@@ -54,6 +55,28 @@ Phase 4:
 - **Recipes and schedules**: `recipe-add` saves a prompt with `{placeholders}`; people run it from the page or with
   `recipe-run`, and `schedule-add` runs it as a named user every N minutes while `python -m orchestrator scheduler`
   runs. A recipe run is an ordinary request: same role, policy and change path.
+
+Phase 5 integrations:
+
+- **Cloud executor** (`python -m executors.tofu_executor`): reviewed OpenTofu modules in `ORCH_TOFU_MODULES` (one
+  folder each, `README.md` first line says what it does; `examples/tofu/azure-resource-group` is an Azure one), working
+  copies and local state in `ORCH_TOFU_STATE`, provider credentials (`ARM_*`) in its own environment. The agent
+  proposes `cloud.module.apply` (module, workspace, variables); the plan shows each resource change with sensitive
+  values masked. The executor plans again at run time and refuses on any difference, applies the saved plan and
+  verifies that nothing is left to change. There is no automatic rollback, so these changes are high risk. Core:
+  `ORCH_TOFU_URL`, `ORCH_TOFU_TOKEN`.
+- **SolarWinds** (`solarwinds.nodes.status`): node status for inventory devices through a fixed SWQL query with
+  parameters. `ORCH_SOLARWINDS_URL` (https://host:17774), `ORCH_SOLARWINDS_USER`, `ORCH_SOLARWINDS_PASSWORD`,
+  `ORCH_SOLARWINDS_CA`.
+- **ServiceNow change records**: `change_record: [high, destructive]` in the policy makes those risk classes need a
+  record number on the change (attached on the page). Before the run the record must be approved, Scheduled or
+  Implement, and inside its planned window; afterwards the outcome goes into its work notes. `ORCH_SNOW_URL`,
+  `ORCH_SNOW_USER`, `ORCH_SNOW_PASSWORD`, `ORCH_SNOW_CA`.
+- **SIEM**: `python -m orchestrator siem-forward` (owner role) sends every tenant's ledger as RFC 5424 syslog with a
+  JSON message to `ORCH_SIEM_TARGET` (`udp://`, `tcp://` or `tls://host:port`), keeping its place per tenant.
+- **ChatOps**: `webhook-add TENANT teams|slack|json URL` posts planned, approved, rejected and finished changes and
+  kill-switch events, with a link (`ORCH_PUBLIC_URL`) to the change on the page. People approve on the page, where
+  they are signed in; a chat button cannot prove who pressed it.
 
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
 capability, device names and, for a playbook, its name and variables. A playbook reads its variables as

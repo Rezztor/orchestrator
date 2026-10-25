@@ -2,9 +2,9 @@
 # anything either denies is denied, each limit is the lower of the two, each approval count the higher, and a change
 # runs only when every change window that is set is open.
 roles:  # capability patterns each role may use
-  viewer: [inventory.*, skills.read, agents.*]
-  operator: [inventory.*, ansible.*, skills.*, agents.*]
-  approver: [inventory.*, ansible.*, skills.*, agents.*]
+  viewer: [inventory.*, solarwinds.*, skills.read, agents.*]
+  operator: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*]
+  approver: [inventory.*, solarwinds.*, ansible.*, cloud.*, skills.*, agents.*]
   tenant-admin: ["*"]
 deny: []  # capability patterns nobody may use
 approvals:  # people who must approve a change, by risk class; never the person who asked for it
@@ -12,6 +12,7 @@ approvals:  # people who must approve a change, by risk class; never the person 
   medium: 1
   high: 2
   destructive: 2
+change_record: []  # risk classes that need an approved ServiceNow change record to run, for example [high, destructive]
 change_window: null  # for example {days: [sat, sun], start: "22:00", end: "04:00"}, UTC; a window may cross midnight
 limits:
   max_steps: 8                # model turns per request

@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS approvals (
 
 ALTER TABLE changes ADD COLUMN IF NOT EXISTS review text;  -- the reviewer agent's notes, advice only
 
+ALTER TABLE changes ADD COLUMN IF NOT EXISTS change_record text;  -- e.g. a ServiceNow CHG number
+
+-- Where a tenant's change and kill-switch events are posted (Teams, Slack, or plain JSON).
+CREATE TABLE IF NOT EXISTS webhooks (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    kind text NOT NULL CHECK (kind IN ('teams', 'slack', 'json')),
+    url text NOT NULL
+);
+
+-- How far the SIEM forwarder has sent each tenant's ledger. The owner role only: the application never sees it.
+CREATE TABLE IF NOT EXISTS siem_cursor (
+    tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+    last_seq bigint NOT NULL DEFAULT 0
+);
+
 -- A tenant's own skills. One the agent proposes is inert until a tenant administrator approves it.
 CREATE TABLE IF NOT EXISTS skills (
     tenant_id uuid NOT NULL REFERENCES tenants(id),
@@ -194,7 +210,7 @@ DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch', 'changes',
-                            'approvals', 'skills', 'recipes', 'schedules'] LOOP
+                            'approvals', 'skills', 'recipes', 'schedules', 'webhooks'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -231,7 +247,7 @@ GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_sch
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes, skills, recipes,
-    schedules TO orch_app;
+    schedules, webhooks TO orch_app;
 GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;

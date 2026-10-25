@@ -1,0 +1,14 @@
+name: solarwinds
+version: 0.1.0
+capabilities:
+  - id: solarwinds.nodes.status
+    kind: read
+    risk: low
+    handler: node_status
+    description: Read monitoring status from SolarWinds for inventory devices (up or down, response time, CPU and memory load, last boot).
+    params:
+      type: object
+      properties:
+        devices: {type: array, items: {type: string}, description: Device names from the inventory, at most 50.}
+      required: [devices]
+      additionalProperties: false
