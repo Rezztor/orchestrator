@@ -91,15 +91,15 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">Design concept · draft 1 · 25 Oct 2026</div>
+  <div class="eyebrow">Design concept · draft 2 · 25 Oct 2026</div>
   <h1>Rezztor Orchestrator</h1>
   <p class="lede">One agent an engineer gives a prompt to. It finds out, plans, gets approval, executes through plugins, verifies and reports, across an enterprise's network and cloud.</p>
-  <div class="meta">Repo Rezztor/orchestrator · PLAN.md has the full text</div>
+  <div class="meta">Repo Rezztor/orchestrator · AGPL-3.0 + Rezztor Enterprise · PLAN.md has the full text</div>
   <div class="summary">
     <div><b>The model proposes, code disposes</b><span>Risk, scope and approval are computed from plugin manifests and policy, never from the model's own rating.</span></div>
     <div><b>Read freely, change deliberately</b><span>Discovery is wide and cheap. Every change is a plan, a digest, a single-use approval and a verification.</span></div>
     <div><b>Tool output is data</b><span>Text from a device, ticket or log is tainted and can never start a change by itself.</span></div>
-    <div><b>Built on what EAgent proved</b><span>Executors, digest approvals, split credentials, RLS and the guard carry over from 94 ADRs.</span></div>
+    <div><b>Every line is ours</b><span>Written from scratch. Ideas from research and from our own products; no code from any other project.</span></div>
   </div>
 </header>
 
@@ -253,7 +253,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 <section id="research">
   <h2>What five open-source harnesses taught us</h2>
-  <p class="prose">All five agree on a small loop, a tool registry, skills as files, sub-agents with narrow context and a separate sandbox. None has tenants, approval that cannot be replayed, split credentials or an audit the agent cannot edit. That gap is the product.</p>
+  <p class="prose">Studied for ideas only; nothing from them is copied. All five agree on a small loop, a tool registry, skills as files, sub-agents with narrow context and a separate sandbox. None has tenants, approval that cannot be replayed, split credentials or an audit the agent cannot edit. That gap is the product.</p>
   <div class="tablewrap"><table>
     <thead><tr><th>Harness</th><th>We take</th><th>We avoid</th></tr></thead>
     <tbody>
@@ -267,13 +267,25 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <p class="prose" style="color:var(--muted);font-size:14.5px">A 2026 source study of eleven harnesses found none built on a general agent framework, skills now more common than MCP, and behavioural policy moving from prompt text into configuration. This design follows all three.</p>
 </section>
 
-<section id="reuse">
-  <h2>Carried over from EAgent</h2>
+<section id="licence">
+  <h2>Ownership and licence</h2>
+  <p class="prose">The same model as netops-eagent: open source, owned entirely by Rezztor, paid for through the Enterprise subscription.</p>
   <div class="grid">
-    <div><h3>Execution</h3><ul><li>Executors are not the runner (0023, 0030, 0061)</li><li>The application holds only a job token</li><li>Free code off by default, always high risk (0070)</li></ul></div>
-    <div><h3>Approval</h3><ul><li>The approved artefact is a digest (0053, 0062)</li><li>The approval is a row used exactly once (0077)</li><li>The requester is the accountable approver (0039)</li></ul></div>
-    <div><h3>Secrets and identity</h3><ul><li>Separate read and change identities (0063)</li><li>The model never sees a stored secret (0044, 0086)</li><li>Change roles deny delete and stop by grant list (0065)</li></ul></div>
-    <div><h3>Agent behaviour</h3><ul><li>The agent does not set its own goals (0031)</li><li>Induced skills private until approved (0025)</li><li>Automatic sources propose, never overwrite (0040–0043)</li></ul></div>
+    <div><h3>Community</h3><ul><li>AGPL-3.0: anyone may run and change it in their enterprise</li><li>A modified version run as a service must offer its source</li><li>Builds a customer makes carry another name (TRADEMARKS.md)</li></ul></div>
+    <div><h3>Rezztor Enterprise</h3><ul><li>Builds signed by Rezztor</li><li>Support and patches for supported releases</li><li>Integrations and updates delivered with the subscription</li><li>A separate commercial licence stays possible, since Rezztor owns all the copyright</li></ul></div>
+    <div><h3>Clean room</h3><ul><li>No code, prompt, test or schema copied from any project, Rezztor's EAgent included</li><li>Published specs (MCP, SKILL.md, OIDC, syslog) implemented ourselves</li><li>Libraries installed, never vendored, AGPL-compatible, each listed in THIRD-PARTY-NOTICES.md</li></ul></div>
+    <div><h3>Open source, not open contribution</h3><ul><li>Outside pull requests closed unreviewed by a workflow</li><li>Issues and private security reports welcome</li><li>Ownership of every line stays with Rezztor</li></ul></div>
+  </div>
+</section>
+
+<section id="lessons">
+  <h2>Lessons from our own products</h2>
+  <p class="prose">The EAgent learned these the hard way. The orchestrator keeps the ideas and writes its own code for each one.</p>
+  <div class="grid">
+    <div><h3>Execution</h3><ul><li>Executors are not the sandbox where agent code runs</li><li>The core holds only a job token</li><li>Model-written code off by default, always high risk</li></ul></div>
+    <div><h3>Approval</h3><ul><li>The approved artefact is the plan's digest</li><li>The approval is a row used exactly once</li><li>The requester is the accountable approver</li></ul></div>
+    <div><h3>Secrets and identity</h3><ul><li>Separate read and change identities</li><li>The model never sees a stored secret</li><li>Change identities cannot delete or stop, by grant list</li></ul></div>
+    <div><h3>Agent behaviour</h3><ul><li>The agent does not set its own goals</li><li>Skills it writes stay private until approved</li><li>Automatic sources propose, never overwrite</li></ul></div>
   </div>
 </section>
 
@@ -418,7 +430,7 @@ capabilities:
   <div class="tablewrap"><table>
     <thead><tr><th>Phase</th><th>Outcome</th><th>Size</th></tr></thead>
     <tbody>
-      <tr><td>0</td><td>Decisions below, repo skeleton, CI runner, decision records folder</td><td>days</td></tr>
+      <tr><td>0</td><td>Licence files and clean-room rules (done), decisions below, repo skeleton, CI runner</td><td>days</td></tr>
       <tr><td>1</td><td>Core loop with states, model gateway, audit ledger, tenants with RLS, web chat; read-only inventory and Ansible facts</td><td>3–4 wks</td></tr>
       <tr><td>2</td><td>Policy engine, risk classifier, three guardrail layers, taint tracking, budgets, kill switch</td><td>3 wks</td></tr>
       <tr><td>3</td><td>Change path: plan, digest, approval row, execute, verify, rollback; Ansible and device bridge changes</td><td>4 wks</td></tr>
@@ -432,15 +444,16 @@ capabilities:
 <section id="decisions">
   <h2>Decisions for RIfky</h2>
   <ol class="decisions">
-    <li><div><b>Build approach</b><span><span class="rec">Recommended:</span> a new core in this repo on the EAgent stack (Python 3.12), reusing its approval, change, scrub and RLS modules; EAgent's Ansible and Azure executors become the first plugins. Alternatives: grow EAgent itself, or start from the OpenHands SDK or Hermes and add the enterprise layer.</span></div></li>
-    <li><div><b>Policy engine</b><span><span class="rec">Recommended for v1:</span> rules in Python, data in YAML per tenant. Alternative: embed OPA with Rego.</span></div></li>
-    <li><div><b>First integration after inventory</b><span><span class="rec">Recommended:</span> the Ansible executor, which already exists. Alternatives: the device bridge, or Azure.</span></div></li>
+    <li><div><b>When the repo goes public</b><span><span class="rec">Recommended:</span> private until phase 1 runs, then public like netops-eagent. Alternative: public now, design only.</span></div></li>
+    <li><div><b>Third-party libraries</b><span><span class="rec">Recommended:</span> allowed as installed dependencies under AGPL-compatible licences, each listed. Alternative: standard library only where possible, our own code for the rest.</span></div></li>
+    <li><div><b>Policy engine</b><span><span class="rec">Recommended:</span> rules in Python, data in YAML per tenant. Alternative: embed OPA with Rego.</span></div></li>
+    <li><div><b>First integration after inventory</b><span><span class="rec">Recommended:</span> our own Ansible executor. Alternatives: the device bridge, or the NetOps EAgent through its API.</span></div></li>
     <li><div><b>Name</b><span>Working name Rezztor Orchestrator, repo Rezztor/orchestrator.</span></div></li>
   </ol>
 </section>
 
 <section id="sources" class="sources">
-  <h2>Sources</h2>
+  <h2>Sources for the ideas</h2>
   <ul>
     <li><a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> · <a href="https://agentic-ai.readthedocs.io/en/latest/AgentPlatforms/hermes-agent/">overview</a></li>
     <li><a href="https://github.com/agent0ai/agent-zero">Agent Zero</a></li>
@@ -448,8 +461,7 @@ capabilities:
     <li><a href="https://docs.openhands.dev/sdk/arch/security">OpenHands security architecture</a> · <a href="https://arxiv.org/pdf/2407.16741">paper</a></li>
     <li><a href="https://mintlify.wiki/block/goose/concepts/extensions">Goose extensions</a></li>
     <li><a href="https://arxiv.org/abs/2609.00006">Harness Engineering: a source-code study of eleven systems</a></li>
-    <li>EAgent decision records, Rezztor/eagent-netops-final, docs/internal/decisions</li>
-  </ul>
+      </ul>
 </section>
 </div>
 </body>
