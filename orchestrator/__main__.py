@@ -12,6 +12,11 @@
   policy-show TENANT_ID                          the effective policy
   stop TENANT_ID REASON | resume TENANT_ID       the tenant's kill switch
   stop-all REASON | resume-all                   the installation's kill switch (owner role)
+  skill-add TENANT_ID FILE                       a SKILL.md, approved for the tenant
+  recipe-add TENANT_ID NAME FILE                 YAML: description, prompt with {placeholders}
+  recipe-run TENANT_ID USER NAME [KEY=VALUE ...]
+  schedule-add TENANT_ID RECIPE USER MINUTES [KEY=VALUE ...]   run the recipe as USER every MINUTES (5 or more)
+  scheduler                                      run due schedules, forever
 """
 import getpass
 import json
@@ -20,7 +25,7 @@ import sys
 
 import psycopg
 
-from . import auth, db, loop, policy
+from . import auth, db, loop, policy, recipes, skills
 
 
 def main(argv):
@@ -82,6 +87,19 @@ def main(argv):
         case ["resume-all"]:
             with psycopg.connect(os.environ["ORCH_DB_URL"]) as conn:
                 conn.execute("DELETE FROM installation_kill")
+        case ["skill-add", tenant_id, path]:
+            with db.tenant(tenant_id) as conn:
+                skills.add(conn, "cli", skills.parse(open(path).read()), "tenant", "approved")
+        case ["recipe-add", tenant_id, name, path]:
+            recipes.add(tenant_id, "cli", name, open(path).read())
+        case ["recipe-run", tenant_id, user, name, *pairs]:
+            request_id, state, answer = recipes.run(tenant_id, user, name, dict(p.split("=", 1) for p in pairs))
+            print(f"{state} {request_id}\n{answer}")
+            return 0 if state == "DONE" else 1
+        case ["schedule-add", tenant_id, recipe, user, minutes, *pairs]:
+            print(recipes.schedule(tenant_id, "cli", recipe, user, int(minutes), dict(p.split("=", 1) for p in pairs)))
+        case ["scheduler"]:
+            recipes.scheduler()
         case _:
             print(__doc__, file=sys.stderr)
             return 2

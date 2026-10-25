@@ -1,7 +1,8 @@
 """Model gateway: one OpenAI-compatible Chat Completions call.
 
 That one protocol reaches a local model (vLLM, llama.cpp, Ollama) and most hosted providers. Configured by
-ORCH_MODEL_URL (base URL ending in /v1), ORCH_MODEL and, for a hosted provider, ORCH_MODEL_KEY.
+ORCH_MODEL_URL (base URL ending in /v1), ORCH_MODEL and, for a hosted provider, ORCH_MODEL_KEY. The change reviewer
+uses ORCH_REVIEW_MODEL on the same endpoint when it is set: a second model catches what the first one misses.
 """
 import json
 import os
@@ -10,9 +11,9 @@ import urllib.request
 # shortcut: one endpoint per installation; route per tenant when tenants need different models.
 
 
-def chat(messages, tools):
+def chat(messages, tools, model=None):
     """Send the conversation, return the assistant message dict ({"content", "tool_calls"?, "usage"})."""
-    body = {"model": os.environ["ORCH_MODEL"], "messages": messages}
+    body = {"model": model or os.environ["ORCH_MODEL"], "messages": messages}
     if tools:
         body["tools"] = tools
     headers = {"Content-Type": "application/json"}

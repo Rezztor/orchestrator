@@ -1,11 +1,26 @@
 """The request loop: INTAKE -> DISCOVER -> DONE, or REFUSED / FAILED, with every step in the audit ledger.
 
-The model may call the read capabilities the policy allows, and propose changes: a change capability's call becomes
-a dry-run plan waiting for people (changes.py), never a change.
+The model may call the read capabilities the policy allows, read skills, hand a question to a specialist, and
+propose changes: a change capability's call becomes a dry-run plan waiting for people (changes.py), never a change.
 """
 import json
+import os
+from fnmatch import fnmatchcase
+from pathlib import Path
 
-from . import changes, db, guard, model, plugins, policy
+import yaml
+
+from . import changes, db, guard, model, plugins, policy, skills
+
+AGENTS = {a["name"]: a for a in (yaml.safe_load(p.read_text())
+                                 for p in sorted((Path(__file__).resolve().parent.parent / "agents").glob("*.yaml")))}
+DELEGATE = {"id": "agents.delegate", "kind": "read", "risk": "low", "handler": None,
+            "description": "Hand one investigation to a specialist, which works with its own narrowed tools and "
+                           "returns findings. Specialists: " + "; ".join(f"{a['name']}: {a['description']}"
+                                                                        for a in AGENTS.values()),
+            "params": {"type": "object", "properties": {"agent": {"type": "string", "enum": sorted(AGENTS)},
+                                                        "task": {"type": "string"}},
+                       "required": ["agent", "task"], "additionalProperties": False}}
 
 SYSTEM = """You are Rezztor Orchestrator, an infrastructure operations agent for one organisation.
 Use the tools to find facts before you answer, and answer only from what the tools returned in this conversation.
@@ -39,10 +54,10 @@ def set_kill_switch(conn, actor, reason):
     db.audit(conn, actor, "kill_switch.stop" if reason else "kill_switch.resume", {"reason": reason})
 
 
-def run(tenant_id, user_name, prompt, chat=None, caps=None):
+def run(tenant_id, user_name, prompt, chat=None, caps=None, reviewer=None):
     """Answer one prompt for one user of one tenant. Returns (request_id, state, answer)."""
     chat = chat or model.chat
-    caps = plugins.load() if caps is None else caps
+    caps = {**(plugins.load() if caps is None else caps), DELEGATE["id"]: DELEGATE}
     with db.tenant(tenant_id) as conn:
         user = changes.user_row(conn, user_name)
         pol = policy.for_tenant(conn)
@@ -66,65 +81,98 @@ def run(tenant_id, user_name, prompt, chat=None, caps=None):
             db.audit(conn, "policy", "request.state", {"request": str(request_id), "state": "REFUSED",
                                                         "reason": refusal})
             return request_id, "REFUSED", refusal
+        offered_skills = skills.index(conn, pol, user["role"])
 
     set_state(tenant_id, request_id, "orchestrator", "DISCOVER")
-    limits, role = pol["limits"], user["role"]
-    offered = plugins.tools(caps, lambda cap: policy.may_use(pol, role, cap["id"]))  # least privilege
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
-    tokens = tool_calls = 0
+    ctx = {"tenant_id": tenant_id, "request_id": request_id, "prompt": prompt, "user": user, "pol": pol,
+           "caps": caps, "chat": chat, "agent": "orchestrator", "budget": {"steps": 0, "tokens": 0, "tool_calls": 0},
+           "reviewer": reviewer or (lambda m, t: model.chat(m, t, os.environ.get("ORCH_REVIEW_MODEL")))}
+    system = SYSTEM
+    if offered_skills:
+        system += "\n\nSkills (read one with skills.read when a task matches it):" + "".join(
+            f"\n- {n}: {d}" for n, d in offered_skills.items())
     try:
-        for _ in range(limits["max_steps"]):
-            with db.tenant(tenant_id) as conn:
-                if kill := policy.stopped(conn):
-                    raise Stop(f"stopped by the kill switch: {kill}")
-            reply = chat(messages, offered)
-            tokens += int((reply.get("usage") or {}).get("total_tokens") or 0)
-            if tokens > limits["max_tokens"]:
-                raise Stop(f"token budget of {limits['max_tokens']} used up")
-            calls = reply.get("tool_calls") or []
-            if not calls:
-                answer = guard.redact(reply.get("content") or "")
-                set_state(tenant_id, request_id, "orchestrator", "DONE", answer, tokens,
-                          answer_digest=db.digest(answer))
-                return request_id, "DONE", answer
-            tool_calls += len(calls)
-            if tool_calls > limits["max_tool_calls"]:
-                raise Stop(f"more than {limits['max_tool_calls']} tool calls")
-            messages.append({"role": "assistant", "content": reply.get("content"), "tool_calls": calls})
-            for call in calls:
-                messages.append({"role": "tool", "tool_call_id": call["id"],
-                                 "content": run_tool(tenant_id, request_id, caps, pol, user, call)})
-        reason = f"no answer within {limits['max_steps']} steps"
+        answer = converse(ctx, [{"role": "system", "content": system}, {"role": "user", "content": prompt}])
+        set_state(tenant_id, request_id, "orchestrator", "DONE", answer, ctx["budget"]["tokens"],
+                  answer_digest=db.digest(answer))
+        return request_id, "DONE", answer
     except Stop as exc:
         reason = str(exc)
     except Exception as exc:  # the request must end in a state, whatever failed
         reason = f"{type(exc).__name__}: {exc}"
-    set_state(tenant_id, request_id, "orchestrator", "FAILED", tokens=tokens, reason=reason)
+    set_state(tenant_id, request_id, "orchestrator", "FAILED", tokens=ctx["budget"]["tokens"], reason=reason)
     return request_id, "FAILED", reason
 
 
-def run_tool(tenant_id, request_id, caps, pol, user, call):
-    name = call["function"]["name"]
-    with db.tenant(tenant_id) as conn:
-        try:
-            args = json.loads(call["function"].get("arguments") or "{}")
-            cap = plugins.find(caps, name)
-            plugins.check_args(cap["params"], args)
-            policy.check(pol, user["role"], cap, args)
-            if cap["kind"] == "change":
-                result = changes.propose(conn, request_id, user, pol, cap, args)
-            else:
-                result = guard.redact(cap["handler"](conn, **args))
-        except (plugins.Refused, json.JSONDecodeError) as exc:
-            db.audit(conn, "policy", "tool.refused", {"request": str(request_id), "tool": name, "reason": str(exc)})
-            return json.dumps({"refused": str(exc)})
-        hits = guard.instructions_in(result)
+def converse(ctx, messages):
+    """Call the model and its tools until it answers. Steps, tokens and tool calls come from one budget per request,
+    shared with any specialist. Returns the redacted answer; raises Stop."""
+    limits, budget = ctx["pol"]["limits"], ctx["budget"]
+    offered = plugins.tools(ctx["caps"], lambda cap: policy.may_use(ctx["pol"], ctx["user"]["role"], cap["id"]))
+    while True:
+        budget["steps"] += 1
+        if budget["steps"] > limits["max_steps"]:
+            raise Stop(f"no answer within {limits['max_steps']} steps")
+        with db.tenant(ctx["tenant_id"]) as conn:
+            if kill := policy.stopped(conn):
+                raise Stop(f"stopped by the kill switch: {kill}")
+        reply = ctx["chat"](messages, offered)
+        budget["tokens"] += int((reply.get("usage") or {}).get("total_tokens") or 0)
+        if budget["tokens"] > limits["max_tokens"]:
+            raise Stop(f"token budget of {limits['max_tokens']} used up")
+        calls = reply.get("tool_calls") or []
+        if not calls:
+            return guard.redact(reply.get("content") or "")
+        budget["tool_calls"] += len(calls)
+        if budget["tool_calls"] > limits["max_tool_calls"]:
+            raise Stop(f"more than {limits['max_tool_calls']} tool calls")
+        messages.append({"role": "assistant", "content": reply.get("content"), "tool_calls": calls})
+        for call in calls:
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": run_tool(ctx, call)})
+
+
+def delegate(ctx, agent, task):
+    """Run a specialist on one task with its narrowed tools (never more than the user's role) and no delegation."""
+    spec = AGENTS[agent]
+    caps = {k: c for k, c in ctx["caps"].items()
+            if k != DELEGATE["id"] and any(fnmatchcase(k, p) for p in spec["capabilities"])}
+    with db.tenant(ctx["tenant_id"]) as conn:
+        db.audit(conn, "orchestrator", "agent.delegated", {"request": str(ctx["request_id"]), "agent": agent,
+                                                            "task": guard.redact(task)})
+    findings = converse({**ctx, "caps": caps, "agent": agent},
+                        [{"role": "system", "content": SYSTEM + "\n\n" + spec["prompt"]},
+                         {"role": "user", "content": task}])
+    return {"agent": agent, "findings": findings}
+
+
+def run_tool(ctx, call):
+    name, request = call["function"]["name"], str(ctx["request_id"])
+    try:
+        args = json.loads(call["function"].get("arguments") or "{}")
+        cap = plugins.find(ctx["caps"], name)
+        plugins.check_args(cap["params"], args)
+        policy.check(ctx["pol"], ctx["user"]["role"], cap, args)
+        if cap is DELEGATE:
+            if args["agent"] not in AGENTS:
+                raise plugins.Refused(f"no specialist {args['agent']!r}")
+            result = delegate(ctx, **args)  # outside a transaction: the specialist's own calls are audited one by one
+        else:
+            with db.tenant(ctx["tenant_id"]) as conn:
+                result = (changes.propose(conn, ctx, cap, args) if cap["kind"] == "change"
+                          else guard.redact(cap["handler"](conn, **args)))
+    except (plugins.Refused, json.JSONDecodeError) as exc:
+        with db.tenant(ctx["tenant_id"]) as conn:
+            db.audit(conn, "policy", "tool.refused", {"request": request, "agent": ctx["agent"], "tool": name,
+                                                      "reason": str(exc)})
+        return json.dumps({"refused": str(exc)})
+    hits = guard.instructions_in(result)
+    with db.tenant(ctx["tenant_id"]) as conn:
         if cap["kind"] == "read":
-            db.audit(conn, "orchestrator", "tool.read", {"request": str(request_id), "capability": cap["id"],
-                                                          "args": args, "result_digest": db.digest(result)})
+            db.audit(conn, ctx["agent"], "tool.read", {"request": request, "capability": cap["id"], "args": args,
+                                                       "result_digest": db.digest(result)})
         if hits:
             db.audit(conn, "guard", "guard.instructions_in_tool_output",
-                     {"request": str(request_id), "capability": cap["id"], "phrases": hits[:10]})
+                     {"request": request, "capability": cap["id"], "phrases": hits[:10]})
     # Marked as untrusted data: the system prompt tells the model never to follow text found in here.
     out = {"capability": cap["id"], "result": result}
     if hits:

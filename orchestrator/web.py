@@ -14,7 +14,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import auth, changes, db, loop, plugins, policy
+from . import auth, changes, db, loop, plugins, policy, recipes, skills
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
           "/app.css": ("app.css", "text/css")}
@@ -57,6 +57,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(401, {"error": "sign in"})
             with db.tenant(me["tenant_id"]) as conn:
                 return self.send(200, {"changes": changes.listing(conn)})
+        if self.path == "/api/library":
+            me = auth.session(self.token())
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            with db.tenant(me["tenant_id"]) as conn:
+                return self.send(200, {"recipes": recipes.listing(conn), "skills": skills.listing(conn),
+                                       "shipped_skills": sorted(skills.shipped())})
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -106,6 +113,28 @@ class Handler(BaseHTTPRequestHandler):
             with db.tenant(me["tenant_id"]) as conn:
                 loop.set_kill_switch(conn, me["user"], reason.strip()[:500] if body.get("stop") is True else None)
                 return self.send(200, {"stopped": policy.stopped(conn)})
+        if self.path in ("/api/skills/decide", "/api/recipes/run"):
+            me = auth.session(self.token())
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            name = body.get("name")
+            if not isinstance(name, str):
+                return self.send(400, {"error": "name is required"})
+            try:
+                if self.path == "/api/skills/decide":
+                    with db.tenant(me["tenant_id"]) as conn:
+                        skills.decide(conn, {"name": me["user"], "role": me["role"]}, name, body.get("approve") is True)
+                    return self.send(200, {"ok": True})
+                request_id, state, answer = recipes.run(me["tenant_id"], me["user"], name, body.get("values") or {})
+            except PermissionError as exc:
+                return self.send(403, {"error": str(exc)})
+            except LookupError as exc:
+                return self.send(404, {"error": str(exc)})
+            except ValueError as exc:
+                return self.send(400, {"error": str(exc)})
+            if state == "FAILED":
+                answer = f"This request could not be completed. Reference {request_id}."
+            return self.send(200, {"request": request_id, "state": state, "answer": answer})
         if self.path in ("/api/changes/decide", "/api/changes/run"):
             me = auth.session(self.token())
             if not me:

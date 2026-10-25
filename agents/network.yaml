@@ -1,0 +1,8 @@
+# A specialist the orchestrator can hand a question to. It works with a narrowed set of tools (these patterns, and
+# never more than the asking user's role allows) and returns its findings; it cannot hand work on.
+name: network
+description: Investigates network devices (inventory and facts) and reports findings. It cannot propose changes.
+capabilities: [inventory.*, ansible.facts.read, ansible.playbooks.list, skills.read]
+prompt: |
+  You are the network specialist. Investigate only what the task asks, with the tools you have, and report findings
+  as short facts with the device names they come from. Say plainly what you could not check.

@@ -3,9 +3,9 @@
 The enterprise agent that takes a prompt and orchestrates infrastructure and cloud work across a customer's estate
 and Rezztor's products: discover, plan, get approval, execute through plugins, verify, report.
 
-Phases 1 to 3: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
-Ansible facts and reviewed Ansible playbooks through our own executor), the policy engine and guardrails, and web
-sign-in with chat and change approval.
+Phases 1 to 4: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
+Ansible facts and reviewed Ansible playbooks through our own executor), the policy engine and guardrails, the change
+path with approvals, skills, recipes and schedules, specialist sub-agents and a change reviewer, and web sign-in.
 
 ## Run it
 
@@ -39,6 +39,21 @@ one higher for a critical device (`device-critical`). People approve that digest
 requester or an approver runs it once, inside the `change_window` if one is set and only while the kill switch is
 off. The executor plans again and refuses on any difference, applies, verifies with another check-mode run and runs
 `NAME.rollback.yml` when the apply or the verification fails. Plans expire after `change_ttl_minutes`.
+
+Phase 4:
+
+- **Skills** are `SKILL.md` files (front matter `name`, `description`, `capabilities`, then the procedure). Shipped ones
+  live in `skills/`; a tenant administrator adds the tenant's own with `skill-add`. The agent sees the names of the
+  skills its role can use and reads one with `skills.read`. It may propose a new one (`skills.propose`), which stays
+  inert until a tenant administrator approves it on the page. A skill grants nothing: tool calls are still checked.
+- **Specialists** (`agents/*.yaml`): the orchestrator can hand one investigation to a specialist with
+  `agents.delegate`. It gets only its own capability patterns, never more than the user's role, cannot delegate
+  further, and spends the same request budget.
+- **Reviewer**: every change plan goes to a second, tool-less model call (`ORCH_REVIEW_MODEL` if set) whose notes
+  are shown on the change card. Advice only; people decide.
+- **Recipes and schedules**: `recipe-add` saves a prompt with `{placeholders}`; people run it from the page or with
+  `recipe-run`, and `schedule-add` runs it as a named user every N minutes while `python -m orchestrator scheduler`
+  runs. A recipe run is an ordinary request: same role, policy and change path.
 
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
 capability, device names and, for a playbook, its name and variables. A playbook reads its variables as

@@ -1,0 +1,29 @@
+name: skills
+version: 0.1.0
+capabilities:
+  - id: skills.read
+    kind: read
+    risk: low
+    handler: read
+    description: Read the full procedure of a skill named in the system prompt before doing a task it covers.
+    params:
+      type: object
+      properties:
+        name: {type: string}
+      required: [name]
+      additionalProperties: false
+  # kind read: it only stores an inert draft that a tenant administrator must approve before anyone can use it
+  - id: skills.propose
+    kind: read
+    risk: low
+    handler: propose
+    description: After finishing a task that others will repeat, propose a skill (a written procedure) for it. A tenant administrator reviews it; until then it is not used.
+    params:
+      type: object
+      properties:
+        name: {type: string, description: "lower-case-with-dashes"}
+        description: {type: string, description: When the skill applies, one sentence.}
+        body: {type: string, description: The procedure in Markdown, steps and checks, no secrets.}
+        capabilities: {type: array, items: {type: string}, description: The capability ids the procedure uses.}
+      required: [name, description, body]
+      additionalProperties: false

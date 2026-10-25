@@ -26,10 +26,22 @@
       <textarea id="prompt" rows="3" maxlength="8000" placeholder="Ask about your infrastructure, for example: which devices are in Colombo?" required></textarea>
       <button type="submit">Ask</button>
     </form>
+    <h2>Recipes</h2>
+    <form id="recipe" hidden>
+      <label for="recipe-name">Recipe</label><select id="recipe-name"></select>
+      <p id="recipe-description" class="muted"></p>
+      <div id="recipe-values"></div>
+      <button type="submit">Run recipe</button>
+    </form>
+    <p id="no-recipes" class="muted">No recipes yet. An administrator adds them with <code>recipe-add</code>.</p>
     <h2>Changes</h2>
     <p class="muted">The agent only proposes. A change runs after the people its risk needs have approved the plan they were shown.</p>
     <p id="change-error" class="error" role="alert"></p>
     <ol id="changes" aria-live="polite"></ol>
+    <h2>Skills</h2>
+    <p id="shipped-skills" class="muted"></p>
+    <p id="skill-error" class="error" role="alert"></p>
+    <ol id="skills"></ol>
   </section>
 </main>
 </body>

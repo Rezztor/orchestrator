@@ -150,11 +150,51 @@ CREATE TABLE IF NOT EXISTS approvals (
     PRIMARY KEY (change_id, user_id)
 );
 
+ALTER TABLE changes ADD COLUMN IF NOT EXISTS review text;  -- the reviewer agent's notes, advice only
+
+-- A tenant's own skills. One the agent proposes is inert until a tenant administrator approves it.
+CREATE TABLE IF NOT EXISTS skills (
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    name text NOT NULL,
+    description text NOT NULL,
+    body text NOT NULL,
+    capabilities text[] NOT NULL DEFAULT '{}',
+    source text NOT NULL CHECK (source IN ('tenant', 'induced')),
+    state text NOT NULL CHECK (state IN ('proposed', 'approved', 'retired')),
+    proposed_by text NOT NULL,
+    decided_by text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, name)
+);
+
+-- A saved prompt with {placeholders}; a schedule runs one as a named user every so many minutes.
+CREATE TABLE IF NOT EXISTS recipes (
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    name text NOT NULL,
+    description text NOT NULL,
+    prompt text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    recipe text NOT NULL,
+    params jsonb NOT NULL DEFAULT '{}',
+    run_as text NOT NULL,
+    every_minutes integer NOT NULL CHECK (every_minutes >= 5),
+    next_run_at timestamptz NOT NULL DEFAULT now(),
+    created_by text NOT NULL,
+    FOREIGN KEY (tenant_id, recipe) REFERENCES recipes (tenant_id, name) ON DELETE CASCADE
+);
+
 DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch', 'changes',
-                            'approvals'] LOOP
+                            'approvals', 'skills', 'recipes', 'schedules'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -182,11 +222,16 @@ CREATE OR REPLACE FUNCTION tenant_id_by_name(p_name text) RETURNS uuid
 CREATE OR REPLACE FUNCTION session_tenant(p_token_hash text) RETURNS uuid
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
     AS $$ SELECT tenant_id FROM sessions WHERE token_hash = p_token_hash AND expires_at > now() $$;
-REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text) TO orch_app;
+-- The scheduler's question across tenants: which schedules are due. It learns ids only, then works inside each tenant.
+CREATE OR REPLACE FUNCTION due_schedules() RETURNS TABLE (tenant_id uuid, id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+    AS $$ SELECT tenant_id, id FROM schedules WHERE next_run_at <= now() ORDER BY next_run_at $$;
+REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text), due_schedules() TO orch_app;
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes TO orch_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes, skills, recipes,
+    schedules TO orch_app;
 GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;
