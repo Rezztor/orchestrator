@@ -3,8 +3,9 @@
 The enterprise agent that takes a prompt and orchestrates infrastructure and cloud work across a customer's estate
 and Rezztor's products: discover, plan, get approval, execute through plugins, verify, report.
 
-Phases 1 and 2: the request loop, tenants with row-level security, the hash-chained audit ledger, read-only plugins
-(inventory, Ansible facts through our own executor) and web sign-in with chat.
+Phases 1 to 3: the request loop, tenants with row-level security, the hash-chained audit ledger, plugins (inventory,
+Ansible facts and reviewed Ansible playbooks through our own executor), the policy engine and guardrails, and web
+sign-in with chat and change approval.
 
 ## Run it
 
@@ -31,12 +32,22 @@ work from the page or with `stop`; `stop-all` stops the whole installation.
 The session cookie is `Secure`: browsers accept it on `localhost`; anywhere else serve HTTPS (`ORCH_WEB_CERT` and
 `ORCH_WEB_KEY`, or TLS in front).
 
+Phase 3 change path: the agent can only propose. A change capability's dry run (Ansible check mode with diffs)
+becomes a PLANNED change with a digest; its risk is the manifest's, one class higher without a rollback playbook and
+one higher for a critical device (`device-critical`). People approve that digest on the page (`approver` or
+`tenant-admin`, never the person who asked; `approvals` in the policy sets how many per risk class), then the
+requester or an approver runs it once, inside the `change_window` if one is set and only while the kill switch is
+off. The executor plans again and refuses on any difference, applies, verifies with another check-mode run and runs
+`NAME.rollback.yml` when the apply or the verification fails. Plans expire after `change_ttl_minutes`.
+
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
-capability and device names:
+capability, device names and, for a playbook, its name and variables. A playbook reads its variables as
+`{{ orch.NAME }}`; values are plain text, numbers or true/false, never templates:
 
 ```bash
 pip install -r executors/requirements.txt
-ORCH_ANSIBLE_TOKEN=<32+ chars> ORCH_ANSIBLE_INVENTORY=/etc/orch/inventory.yml python -m executors.ansible_executor
+ORCH_ANSIBLE_TOKEN=<32+ chars> ORCH_ANSIBLE_INVENTORY=/etc/orch/inventory.yml \
+  ORCH_ANSIBLE_PLAYBOOKS=/etc/orch/playbooks python -m executors.ansible_executor   # NAME.yml, NAME.rollback.yml
 # in the core's environment: ORCH_ANSIBLE_URL=http://127.0.0.1:8470 ORCH_ANSIBLE_TOKEN=<same token>
 ```
 

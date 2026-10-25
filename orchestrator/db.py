@@ -4,6 +4,7 @@ Two roles. The owner role (ORCH_DB_URL) migrates and creates tenants. The applic
 (ORCH_DB_APP_URL) does everything else, inside `tenant(tenant_id)`, and row-level security keeps it to that tenant:
 a query that runs without a tenant set sees nothing.
 """
+import json
 import os
 import uuid
 from contextlib import contextmanager
@@ -61,6 +62,11 @@ def audit(conn, actor, kind, data=None):
         "INSERT INTO audit (tenant_id, actor, kind, data) "
         "VALUES (current_setting('app.tenant_id')::uuid, %s, %s, %s)",
         (actor, kind, Jsonb(data or {})))
+
+
+def digest(value):
+    """SHA-256 of a JSON-like value, for the ledger to record what it does not store."""
+    return sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def verify_audit(conn):

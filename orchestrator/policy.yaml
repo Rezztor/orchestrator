@@ -1,14 +1,22 @@
 # The shipped policy is the ceiling. A tenant's own policy can only narrow it: a capability must be allowed by both,
-# anything either denies is denied, and each limit is the lower of the two.
+# anything either denies is denied, each limit is the lower of the two, each approval count the higher, and a change
+# runs only when every change window that is set is open.
 roles:  # capability patterns each role may use
   viewer: [inventory.*]
-  operator: [inventory.*, ansible.facts.*]
-  approver: [inventory.*, ansible.facts.*]
+  operator: [inventory.*, ansible.*]
+  approver: [inventory.*, ansible.*]
   tenant-admin: ["*"]
 deny: []  # capability patterns nobody may use
+approvals:  # people who must approve a change, by risk class; never the person who asked for it
+  low: 1
+  medium: 1
+  high: 2
+  destructive: 2
+change_window: null  # for example {days: [sat, sun], start: "22:00", end: "04:00"}, UTC; a window may cross midnight
 limits:
   max_steps: 8                # model turns per request
   max_tool_calls: 20          # tool calls per request
   max_tokens: 200000          # model tokens per request
   max_targets_per_call: 50    # items in any list argument (devices, hosts) in one call
   max_requests_per_hour: 60   # per user
+  change_ttl_minutes: 240     # a plan not run by then expires and must be proposed again

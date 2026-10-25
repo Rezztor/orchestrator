@@ -20,7 +20,82 @@ async function show() {
   $("kill").hidden = !(signedIn && me.data.role === "tenant-admin");
   $("kill").textContent = stopped ? "Resume agent work" : "Stop all agent work";
   $("kill").dataset.stopped = stopped ? "1" : "";
+  current = signedIn ? me.data : null;
+  if (signedIn) loadChanges();
   (signedIn ? $("prompt") : $("tenant")).focus();
+}
+
+const APPROVERS = ["approver", "tenant-admin"];
+let current = null; // the signed-in user, from /api/me
+let polling = null;
+
+function el(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
+}
+
+function button(label, onClick, cls) {
+  const b = el("button", label, cls);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+async function act(path, body) {
+  const res = await api(path, body);
+  $("change-error").textContent = res.status < 300 ? "" : res.data.error;
+  loadChanges();
+}
+
+function card(c) {
+  const li = el("li");
+  li.append(el("h3", `${c.capability} on ${(c.args.devices || []).join(", ")}`));
+  const decided = c.decisions.filter((d) => d.decision === "approve").length;
+  const expires = new Date(c.expires_at).toLocaleString();
+  li.append(el("p", `${c.state} · risk ${c.risk} · approved by ${decided} of ${c.approvals_needed} · ` +
+    `asked by ${c.requested_by} · ${c.plan.rollback ? "can be rolled back" : "no rollback"} · expires ${expires}`, "muted"));
+  for (const d of c.decisions) li.append(el("p", `${d.user}: ${d.decision}${d.reason ? ` (${d.reason})` : ""}`));
+  const plan = el("details");
+  plan.append(el("summary", "Plan (dry run)"), el("pre", JSON.stringify(c.args, null, 2)));
+  for (const [host, h] of Object.entries(c.plan.hosts)) {
+    for (const t of h.tasks.filter((t) => t.changed)) {
+      plan.append(el("pre", `${host} · ${t.task}\n${t.diff || "(changes, no diff)"}`));
+    }
+  }
+  li.append(plan);
+  if (c.result) {
+    const result = el("details");
+    result.append(el("summary", `Result: ${c.result.outcome}`), el("pre", JSON.stringify(c.result, null, 2)));
+    li.append(result);
+  }
+  const me = current;
+  const actions = el("p", undefined, "actions");
+  const approver = APPROVERS.includes(me.role);
+  if (c.state === "PLANNED" && approver && c.requested_by !== me.user && !c.decisions.some((d) => d.user === me.user)) {
+    const decide = (approve, reason) => act("/api/changes/decide", { change: c.id, digest: c.digest, approve, reason });
+    actions.append(button("Approve this plan", () => decide(true)),
+      button("Reject", () => {
+        const reason = window.prompt("Why are you rejecting this change?");
+        if (reason) decide(false, reason);
+      }, "secondary"));
+  }
+  if (c.state === "APPROVED" && (approver || c.requested_by === me.user)) {
+    actions.append(button("Run the change", () => act("/api/changes/run", { change: c.id })));
+  }
+  if (actions.childElementCount) li.append(actions);
+  li.className = { VERIFIED: "ok", FAILED: "failed", ROLLED_BACK: "failed", SUPERSEDED: "failed" }[c.state] || "";
+  return li;
+}
+
+async function loadChanges() {
+  const res = await api("/api/changes");
+  if (res.status !== 200) return;
+  $("changes").replaceChildren(...res.data.changes.map(card));
+  if (!res.data.changes.length) $("changes").append(el("li", "No changes proposed yet.", "muted"));
+  clearTimeout(polling);
+  if (res.data.changes.some((c) => c.state === "EXECUTING")) polling = setTimeout(loadChanges, 3000);
 }
 
 function say(text, cls) {
@@ -42,6 +117,7 @@ $("sign-in").addEventListener("submit", async (e) => {
 $("sign-out").addEventListener("click", async () => {
   await api("/api/sign-out", {});
   $("log").replaceChildren();
+  $("changes").replaceChildren();
   show();
 });
 
@@ -66,6 +142,7 @@ $("ask").addEventListener("submit", async (e) => {
     const res = await api("/api/ask", { prompt });
     if (res.status === 401) return show();
     say(res.data.answer ?? res.data.error, res.data.state === "DONE" ? "" : "failed");
+    loadChanges();
   } finally {
     button.disabled = false;
     button.textContent = "Ask";

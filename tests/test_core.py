@@ -4,7 +4,7 @@ import os
 import psycopg
 import pytest
 
-from orchestrator import db, loop, plugins
+from orchestrator import db, loop
 
 
 def add_device(tenant_id, name, site):
@@ -98,24 +98,17 @@ def test_a_read_request_runs_to_done_and_tool_output_is_marked_untrusted(databas
         assert db.verify_audit(conn) is None
 
 
-def test_changes_unknown_tools_and_bad_arguments_are_refused(database):
+def test_unknown_tools_and_bad_arguments_are_refused(database):
     t = db.create_tenant("acme", "alice")
-    ran = []
-    caps = plugins.load()
-    caps["ansible.playbook.run"] = {"id": "ansible.playbook.run", "kind": "change", "description": "",
-                                    "params": {"type": "object", "properties": {}},
-                                    "handler": lambda conn: ran.append(1)}
-    chat = scripted(tool_call("ansible__playbook__run", {}), tool_call("shell__run", {}),
-                    tool_call("inventory__devices__list", {"site": 5}),
-                    tool_call("inventory__devices__list", {"where": "1=1"}), {"content": "Nothing changed."})
+    chat = scripted(tool_call("shell__run", {}), tool_call("inventory__devices__list", {"site": 5}),
+                    tool_call("inventory__devices__list", {"where": "1=1"}), {"content": "Nothing found."})
 
-    _, state, _ = loop.run(t, "alice", "reload every switch", chat=chat, caps=caps)
+    _, state, _ = loop.run(t, "alice", "reload every switch", chat=chat)
 
-    assert state == "DONE" and ran == []
+    assert state == "DONE"
     refusals = [json.loads(m[-1]["content"])["refused"] for m in chat.seen[1:]]
-    assert "approval path" in refusals[0] and "no capability" in refusals[1]
-    assert "must be string" in refusals[2] and "unknown argument" in refusals[3]
-    assert audit_kinds(t).count("tool.refused") == 4
+    assert "no capability" in refusals[0] and "must be string" in refusals[1] and "unknown argument" in refusals[2]
+    assert audit_kinds(t).count("tool.refused") == 3
 
 
 def test_a_request_always_ends_in_a_state(database):

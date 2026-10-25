@@ -1,13 +1,16 @@
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
 import pytest
 
-from orchestrator import auth, db, model, web
+from orchestrator import auth, db, model, plugins, web
+from tests.test_changes import DIGEST, change_cap
 from tests.test_core import add_device, scripted, tool_call
+from tests.test_policy_guard import add_user
 
 
 @pytest.fixture
@@ -105,3 +108,35 @@ def test_only_a_tenant_admin_can_stop_agent_work(site):
     assert call(site, "/api/me", cookie=olga)[1]["stopped"] == "change freeze"
     assert call(site, "/api/ask", {"prompt": "list devices"}, cookie=olga)[1]["state"] == "REFUSED"
     assert call(site, "/api/kill-switch", {"stop": False}, cookie=token)[1] == {"stopped": None}
+
+
+def test_people_approve_and_run_a_change_from_the_page(site, monkeypatch):
+    applied = []
+    caps = change_cap(applied)
+    monkeypatch.setattr(plugins, "load", lambda: caps)
+    with db.app() as conn:
+        tenant = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
+    add_user(tenant, "ava", "approver")
+    auth.set_password(tenant, "ava", "correct horse battery")
+    alice = sign_in(site)[1]
+    ava = call(site, "/api/sign-in", {"tenant": "acme", "user": "ava", "password": "correct horse battery"})[2] \
+        .get("Set-Cookie").split(";")[0].split("=", 1)[1]
+
+    monkeypatch.setattr(model, "chat", scripted(tool_call("ansible__test__set", {"devices": ["core-sw1"]}),
+                                                {"content": "Planned."}))
+    call(site, "/api/ask", {"prompt": "set it"}, cookie=alice)
+    change = call(site, "/api/changes", cookie=ava)[1]["changes"][0]
+    assert (change["state"], change["requested_by"], change["digest"]) == ("PLANNED", "alice", DIGEST)
+
+    decide = {"change": change["id"], "digest": DIGEST, "approve": True}
+    assert call(site, "/api/changes/decide", decide, cookie=alice)[0] == 403  # alice asked for it
+    assert call(site, "/api/changes/run", {"change": change["id"]}, cookie=alice)[0] == 409  # not approved yet
+    assert call(site, "/api/changes/decide", {**decide, "approve": False}, cookie=ava)[0] == 400  # no reason given
+    assert call(site, "/api/changes/decide", {**decide, "change": "x"}, cookie=ava)[0] == 400
+    assert call(site, "/api/changes/decide", decide, cookie=ava)[1] == {"state": "APPROVED"}
+    assert call(site, "/api/changes/run", {"change": change["id"]}, cookie=alice)[:2] == (202, {"state": "EXECUTING"})
+    for _ in range(50):
+        if call(site, "/api/changes", cookie=alice)[1]["changes"][0]["state"] != "EXECUTING":
+            break
+        time.sleep(0.1)
+    assert call(site, "/api/changes", cookie=alice)[1]["changes"][0]["state"] == "VERIFIED" and len(applied) == 1

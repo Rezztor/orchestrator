@@ -115,10 +115,46 @@ CREATE OR REPLACE TRIGGER audit_append_only BEFORE UPDATE OR DELETE ON audit
 CREATE OR REPLACE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit
     FOR EACH STATEMENT EXECUTE FUNCTION audit_refuse_change();
 
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS critical boolean NOT NULL DEFAULT false;  -- raises a change's risk
+
+-- A proposed change: the capability's dry run, its digest and its lifecycle. People approve the digest; the run sends
+-- it back to the executor, which re-plans and refuses on any difference.
+CREATE TABLE IF NOT EXISTS changes (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    request_id uuid NOT NULL REFERENCES requests(id),
+    requested_by uuid NOT NULL REFERENCES users(id),
+    capability text NOT NULL,
+    args jsonb NOT NULL,
+    plan jsonb NOT NULL,          -- what people are shown, redacted
+    digest text NOT NULL,         -- what they approve
+    risk text NOT NULL CHECK (risk IN ('low', 'medium', 'high', 'destructive')),
+    approvals_needed integer NOT NULL CHECK (approvals_needed > 0),
+    state text NOT NULL DEFAULT 'PLANNED' CHECK (state IN ('PLANNED', 'APPROVED', 'REJECTED', 'EXECUTING',
+                                                           'VERIFIED', 'ROLLED_BACK', 'SUPERSEDED', 'FAILED')),
+    result jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- One decision per person per change, bound to the digest they saw.
+CREATE TABLE IF NOT EXISTS approvals (
+    change_id uuid NOT NULL REFERENCES changes(id),
+    tenant_id uuid NOT NULL REFERENCES tenants(id),
+    user_id uuid NOT NULL REFERENCES users(id),
+    digest text NOT NULL,
+    decision text NOT NULL CHECK (decision IN ('approve', 'reject')),
+    reason text,
+    at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (change_id, user_id)
+);
+
 DO $$
 DECLARE t text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch'] LOOP
+    FOREACH t IN ARRAY ARRAY['users', 'requests', 'devices', 'audit', 'policies', 'kill_switch', 'changes',
+                            'approvals'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS tenant_scope ON %I', t);
@@ -150,6 +186,7 @@ REVOKE ALL ON FUNCTION tenant_id_by_name(text), session_tenant(text) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION tenant_id_by_name(text), session_tenant(text) TO orch_app;
 
 GRANT SELECT ON tenants, installation_kill TO orch_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch TO orch_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON users, requests, devices, sessions, policies, kill_switch, changes TO orch_app;
+GRANT SELECT, INSERT ON approvals TO orch_app;
 GRANT SELECT, INSERT ON audit TO orch_app;
 GRANT USAGE ON SEQUENCE audit_seq_seq TO orch_app;
