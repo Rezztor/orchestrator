@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from orchestrator import auth, db, model, plugins, web
+from orchestrator import auth, db, model, plugins, recipes, skills, web
 from tests.test_changes import DIGEST, change_cap
 from tests.test_core import add_device, scripted, tool_call
 from tests.test_policy_guard import add_user
@@ -140,3 +140,30 @@ def test_people_approve_and_run_a_change_from_the_page(site, monkeypatch):
             break
         time.sleep(0.1)
     assert call(site, "/api/changes", cookie=alice)[1]["changes"][0]["state"] == "VERIFIED" and len(applied) == 1
+
+
+def test_recipes_run_and_only_an_admin_decides_on_skills(site, monkeypatch):
+    with db.app() as conn:
+        tenant = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
+    add_user(tenant, "oscar", "operator")
+    auth.set_password(tenant, "oscar", "correct horse battery")
+    recipes.add(tenant, "alice", "site-devices", "description: Devices at a site\nprompt: List devices at {site}.\n")
+    with db.tenant(tenant) as conn:
+        skills.add(conn, "agent", skills.check("vlan-audit", "Audit VLANs.", "1. List devices.", []), "induced",
+                   "proposed")
+    alice = sign_in(site)[1]
+    oscar = call(site, "/api/sign-in", {"tenant": "acme", "user": "oscar", "password": "correct horse battery"})[2] \
+        .get("Set-Cookie").split(";")[0].split("=", 1)[1]
+
+    library = call(site, "/api/library", cookie=oscar)[1]
+    assert library["recipes"][0]["params"] == ["site"] and library["skills"][0]["state"] == "proposed"
+    assert "login-banner" in library["shipped_skills"]
+    monkeypatch.setattr(model, "chat", scripted({"content": "core-sw1"}))
+    status, body, _ = call(site, "/api/recipes/run", {"name": "site-devices", "values": {"site": "colombo"}},
+                           cookie=oscar)
+    assert (status, body["state"], body["answer"]) == (200, "DONE", "core-sw1")
+    assert call(site, "/api/recipes/run", {"name": "site-devices", "values": {}}, cookie=oscar)[0] == 400
+
+    assert call(site, "/api/skills/decide", {"name": "vlan-audit", "approve": True}, cookie=oscar)[0] == 403
+    assert call(site, "/api/skills/decide", {"name": "vlan-audit", "approve": True}, cookie=alice)[0] == 200
+    assert call(site, "/api/library", cookie=oscar)[1]["skills"][0]["state"] == "approved"

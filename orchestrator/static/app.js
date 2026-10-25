@@ -22,6 +22,7 @@ async function show() {
   $("kill").dataset.stopped = stopped ? "1" : "";
   current = signedIn ? me.data : null;
   if (signedIn) loadChanges();
+  if (signedIn) loadLibrary();
   (signedIn ? $("prompt") : $("tenant")).focus();
 }
 
@@ -56,6 +57,7 @@ function card(c) {
   const expires = new Date(c.expires_at).toLocaleString();
   li.append(el("p", `${c.state} · risk ${c.risk} · approved by ${decided} of ${c.approvals_needed} · ` +
     `asked by ${c.requested_by} · ${c.plan.rollback ? "can be rolled back" : "no rollback"} · expires ${expires}`, "muted"));
+  if (c.review) li.append(el("p", `Reviewer: ${c.review}`, "review"));
   for (const d of c.decisions) li.append(el("p", `${d.user}: ${d.decision}${d.reason ? ` (${d.reason})` : ""}`));
   const plan = el("details");
   plan.append(el("summary", "Plan (dry run)"), el("pre", JSON.stringify(c.args, null, 2)));
@@ -118,6 +120,7 @@ $("sign-out").addEventListener("click", async () => {
   await api("/api/sign-out", {});
   $("log").replaceChildren();
   $("changes").replaceChildren();
+  $("skills").replaceChildren();
   show();
 });
 
@@ -129,24 +132,87 @@ $("kill").addEventListener("click", async () => {
   show();
 });
 
+async function converse(button, label, path, body) {
+  button.disabled = true;
+  button.textContent = "Working…";
+  try {
+    const res = await api(path, body);
+    if (res.status === 401) return show();
+    say(res.data.answer ?? res.data.error, res.data.state === "DONE" ? "" : "failed");
+    loadChanges();
+    loadLibrary();
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
 $("ask").addEventListener("submit", async (e) => {
   e.preventDefault();
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
-  const button = e.submitter;
   say(prompt, "you");
   $("prompt").value = "";
-  button.disabled = true;
-  button.textContent = "Working…";
-  try {
-    const res = await api("/api/ask", { prompt });
-    if (res.status === 401) return show();
-    say(res.data.answer ?? res.data.error, res.data.state === "DONE" ? "" : "failed");
-    loadChanges();
-  } finally {
-    button.disabled = false;
-    button.textContent = "Ask";
-  }
+  await converse(e.submitter, "Ask", "/api/ask", { prompt });
 });
+
+let recipes = [];
+
+function showRecipe() {
+  const r = recipes.find((x) => x.name === $("recipe-name").value);
+  $("recipe-description").textContent = r ? r.description : "";
+  $("recipe-values").replaceChildren(...(r ? r.params : []).flatMap((p) => {
+    const label = el("label", p.replaceAll("_", " "));
+    const input = el("input");
+    label.htmlFor = input.id = `recipe-${p}`;
+    input.name = p;
+    input.required = true;
+    input.maxLength = 200;
+    return [label, input];
+  }));
+}
+
+$("recipe-name").addEventListener("change", showRecipe);
+$("recipe").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("recipe-name").value;
+  const values = Object.fromEntries([...$("recipe-values").querySelectorAll("input")].map((i) => [i.name, i.value.trim()]));
+  say(`Recipe ${name}: ${Object.entries(values).map(([k, v]) => `${k} = ${v}`).join(", ") || "no values"}`, "you");
+  await converse(e.submitter, "Run recipe", "/api/recipes/run", { name, values });
+});
+
+async function decideSkill(name, approve) {
+  const res = await api("/api/skills/decide", { name, approve });
+  $("skill-error").textContent = res.status === 200 ? "" : res.data.error;
+  loadLibrary();
+}
+
+async function loadLibrary() {
+  const res = await api("/api/library");
+  if (res.status !== 200) return;
+  const chosen = $("recipe-name").value;
+  recipes = res.data.recipes;
+  $("recipe").hidden = !recipes.length;
+  $("no-recipes").hidden = !!recipes.length;
+  $("recipe-name").replaceChildren(...recipes.map((r) => el("option", r.name)));
+  if (recipes.some((r) => r.name === chosen)) $("recipe-name").value = chosen;
+  showRecipe();
+  $("shipped-skills").textContent = `Shipped with the product: ${res.data.shipped_skills.join(", ")}.`;
+  $("skills").replaceChildren(...res.data.skills.map((s) => {
+    const li = el("li", undefined, s.state === "proposed" ? "pending" : "");
+    li.append(el("h3", s.name), el("p", `${s.state} · ${s.source === "induced" ? "proposed by the agent" : "added by " + s.proposed_by}` +
+      ` · uses ${s.capabilities.join(", ") || "no tools"}`, "muted"), el("p", s.description));
+    const body = el("details");
+    body.append(el("summary", "Procedure"), el("pre", s.body));
+    li.append(body);
+    if (current.role === "tenant-admin" && s.state !== "retired") {
+      const actions = el("p", undefined, "actions");
+      if (s.state === "proposed") actions.append(button("Approve skill", () => decideSkill(s.name, true)));
+      actions.append(button(s.state === "proposed" ? "Reject" : "Retire", () => decideSkill(s.name, false), "secondary"));
+      li.append(actions);
+    }
+    return li;
+  }));
+}
 
 show();

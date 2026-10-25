@@ -2,9 +2,9 @@
 # anything either denies is denied, each limit is the lower of the two, each approval count the higher, and a change
 # runs only when every change window that is set is open.
 roles:  # capability patterns each role may use
-  viewer: [inventory.*]
-  operator: [inventory.*, ansible.*]
-  approver: [inventory.*, ansible.*]
+  viewer: [inventory.*, skills.read, agents.*]
+  operator: [inventory.*, ansible.*, skills.*, agents.*]
+  approver: [inventory.*, ansible.*, skills.*, agents.*]
   tenant-admin: ["*"]
 deny: []  # capability patterns nobody may use
 approvals:  # people who must approve a change, by risk class; never the person who asked for it
