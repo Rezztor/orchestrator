@@ -19,6 +19,15 @@ python -m orchestrator ask <tenant-id> alice "Which devices are in Colombo?"
 python -m orchestrator audit-verify <tenant-id>
 ```
 
+The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
+capability and device names:
+
+```bash
+pip install -r executors/requirements.txt
+ORCH_ANSIBLE_TOKEN=<32+ chars> ORCH_ANSIBLE_INVENTORY=/etc/orch/inventory.yml python -m executors.ansible_executor
+# in the core's environment: ORCH_ANSIBLE_URL=http://127.0.0.1:8470 ORCH_ANSIBLE_TOKEN=<same token>
+```
+
 Tests need PostgreSQL 16+ and an empty database: `ORCH_TEST_DB_URL=postgresql://owner@127.0.0.1:5432/orch_test pytest`.
 Without it they skip.
 
