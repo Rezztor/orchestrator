@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from psycopg.types.json import Jsonb
 
-from . import db, guard, notify, policy, tickets
+from . import db, guard, notify, plugins, policy, tickets
 from .plugins import Refused
 
 APPROVER_ROLES = ("approver", "tenant-admin")
@@ -191,10 +191,13 @@ def start(tenant_id, user_name, change_id):
 
 def finish(tenant_id, change, caps):
     """Send the approved digest to the capability's apply handler and record the outcome. Returns (state, result)."""
+    tenant_scope = plugins.TENANT.set(tenant_id)  # the tenant's own executor, when it has one
     try:
         result = caps[change["capability"]]["apply"](change["digest"], **change["args"])
     except Exception as exc:  # the change must end in a state, whatever failed
         result = {"outcome": "error", "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        plugins.TENANT.reset(tenant_scope)
     state, result = OUTCOMES.get(result.get("outcome"), "FAILED"), guard.redact(result)
     with db.tenant(tenant_id) as conn:
         conn.execute("UPDATE changes SET state = %s, result = %s, updated_at = now() WHERE id = %s",
@@ -216,6 +219,7 @@ def finish(tenant_id, change, caps):
 
 
 def run(tenant_id, user_name, change_id, caps):
+    """Start and finish a change in this thread (the CLI and tests; the page runs finish in a background thread)."""
     return finish(tenant_id, start(tenant_id, user_name, change_id), caps)
 
 

@@ -60,8 +60,18 @@ def set_kill_switch(tenant_id, actor, reason):
 
 def run(tenant_id, user_name, prompt, chat=None, caps=None, reviewer=None):
     """Answer one prompt for one user of one tenant. Returns (request_id, state, answer)."""
+    tenant_scope = plugins.TENANT.set(tenant_id)
+    try:
+        return _run(tenant_id, user_name, prompt, chat, caps, reviewer)
+    finally:
+        plugins.TENANT.reset(tenant_scope)
+
+
+def _run(tenant_id, user_name, prompt, chat, caps, reviewer):
     chat = chat or model.chat
-    caps = {**(plugins.load() if caps is None else caps), DELEGATE["id"]: DELEGATE}
+    caps = {k: c for k, c in (plugins.load() if caps is None else caps).items()
+            if str(tenant_id) in c.get("tenants", [str(tenant_id)])}  # an MCP server serves only its tenants
+    caps[DELEGATE["id"]] = DELEGATE
     with db.tenant(tenant_id) as conn:
         user = changes.user_row(conn, user_name)
         pol = policy.for_tenant(conn)

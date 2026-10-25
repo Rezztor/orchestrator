@@ -149,6 +149,15 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AssertionError):
             return self.send(400, {"error": "body must be a JSON object"})
 
+        if self.path.startswith("/hooks/"):  # another system starts a recipe; the secret in the path is its key
+            try:
+                tenant_id, run_as, recipe, values = recipes.fire(self.path.removeprefix("/hooks/"), body)
+            except LookupError:
+                return self.send(404, {"error": "not found"})
+            except ValueError as exc:
+                return self.send(400, {"error": str(exc)})
+            threading.Thread(target=recipes.run, args=(tenant_id, run_as, recipe, values), daemon=True).start()
+            return self.send(202, {"accepted": True})
         if self.path == "/api/sign-in":
             fields = [body.get(k) for k in ("tenant", "user", "password")]
             if not all(isinstance(f, str) and f for f in fields):

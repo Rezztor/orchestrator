@@ -9,6 +9,8 @@
 x-core: &core
   image: rezztor/orchestrator-core:${ORCH_VERSION}
   restart: unless-stopped
+  # secrets that route-set and oidc-set name (a tenant's own executor token or model key, directory client secrets)
+  env_file: [{path: ./secrets.env, required: false}]
   read_only: true
   tmpfs: [/tmp]
   cap_drop: [ALL]
@@ -32,6 +34,7 @@ x-app-env: &app-env
   ORCH_SNOW_URL: ${ORCH_SNOW_URL:-}
   ORCH_SNOW_USER: ${ORCH_SNOW_USER:-}
   ORCH_SNOW_PASSWORD: ${ORCH_SNOW_PASSWORD:-}
+  ORCH_MCP_PLUGINS: /etc/orch/mcp  # the customer's MCP server manifests, reviewed by the administrator
 
 services:
   postgres:
@@ -61,12 +64,11 @@ services:
 
   web:
     <<: *core
-    env_file: [{path: ./oidc.env, required: false}]  # directory client secrets, named by oidc-set
     environment:
       <<: *app-env
       ORCH_WEB_CERT: /certs/tls.crt
       ORCH_WEB_KEY: /certs/tls.key
-    volumes: [./certs:/certs:ro]
+    volumes: [./certs:/certs:ro, ./mcp:/etc/orch/mcp:ro]
     ports: ["${ORCH_HTTPS_PORT:-443}:8443"]
     networks: [back, out]
     healthcheck:
@@ -79,7 +81,7 @@ services:
     environment:
       <<: *app-env
       ORCH_ANCHOR_KEY: ${ORCH_ANCHOR_KEY:-}  # /keys/anchor.key once ./keys holds one
-    volumes: [./keys:/keys:ro]
+    volumes: [./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
     networks: [back, out]
 
   siem:  # the owner role: it reads every tenant's ledger; a second copy waits as a standby

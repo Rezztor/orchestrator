@@ -5,6 +5,7 @@ database answers from the case's canned results, so an eval never touches a devi
 What the model called is read back from the audit ledger: refused calls count as calls.
 """
 import uuid
+from pathlib import Path
 
 import yaml
 
@@ -57,10 +58,16 @@ def run_case(case, chat=None):
     return problems, calls
 
 
-def run(path, chat=None):
-    """Run every case in a YAML file. Returns True when all pass."""
+def files():
+    """The shipped cases: evals/cases.yaml and each shipped skill's evals.yaml."""
+    root = Path(__file__).resolve().parent.parent
+    return [root / "evals" / "cases.yaml", *sorted((root / "skills").glob("*/evals.yaml"))]
+
+
+def run(paths=None, chat=None):
+    """Run every case in the YAML files (the shipped ones by default). Returns True when all pass."""
     passed = True
-    for case in yaml.safe_load(open(path)):
+    for case in [c for p in (paths or files()) for c in yaml.safe_load(open(p))]:
         problems, calls = run_case(case, chat)
         passed &= not problems
         print(f"{'FAIL' if problems else 'PASS'} {case['name']}: {', '.join(calls) or 'no calls'}"

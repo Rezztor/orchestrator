@@ -5,6 +5,7 @@ is not in it does not exist, and its `params` schema is checked before the handl
 `handler` is its dry run, returning {"digest", "rollback", "targets", "hosts"}; its `apply` handler takes the
 approved digest and the same arguments (see changes.py).
 """
+import contextvars
 import importlib.util
 import json
 import os
@@ -15,10 +16,13 @@ from pathlib import Path
 
 import yaml
 
+from . import db
+
 PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
 TYPES = {"string": str, "integer": int, "boolean": bool, "array": list, "object": dict}
 
-# ponytail: in-process plugins shipped in this tree only; signed out-of-process plugins (MCP) come with releases.
+TENANT = contextvars.ContextVar("tenant", default=None)  # set for a request or a run: whose executors and model
+ROUTE_KINDS = ("ansible", "tofu", "model")
 
 
 class Refused(Exception):
@@ -38,6 +42,12 @@ def load(plugin_dir=PLUGIN_DIR):
                 raise ValueError(f"{manifest}: {cap['id']} must be a read, or a change with an apply handler")
             caps[cap["id"]] = {**cap, "plugin": spec["name"], "handler": getattr(module, cap["handler"]),
                                **({"apply": getattr(module, cap["apply"])} if "apply" in cap else {})}
+    if os.environ.get("ORCH_MCP_PLUGINS"):  # the customer's own MCP servers, read only; see mcp.py
+        from . import mcp
+        extra = mcp.load(os.environ["ORCH_MCP_PLUGINS"])
+        if clash := set(extra) & set(caps):
+            raise ValueError(f"MCP manifests redefine {', '.join(sorted(clash))}")
+        caps.update(extra)
     return caps
 
 
@@ -73,12 +83,37 @@ def find(caps, name):
     return cap
 
 
+def route(kind):
+    """The current tenant's own endpoint for an executor kind or the model ({url, secret_env, ca, model}), or None
+    when it uses the installation's (set with route-set; an executor bound to one tenant and its network)."""
+    tenant = TENANT.get()
+    if tenant is None:
+        return None
+    with db.tenant(tenant) as conn:
+        return conn.execute("SELECT url, secret_env, ca, model FROM routes WHERE kind = %s", (kind,)).fetchone()
+
+
+def set_route(tenant_id, actor, kind, url, secret_env, model=None, ca=None):
+    if kind not in ROUTE_KINDS or not url.startswith(("https://", "http://")):
+        raise ValueError(f"a route is one of {', '.join(ROUTE_KINDS)} with an http(s) URL")
+    with db.tenant(tenant_id) as conn:
+        conn.execute("INSERT INTO routes (tenant_id, kind, url, secret_env, model, ca) VALUES "
+                     "(current_setting('app.tenant_id')::uuid, %s, %s, %s, %s, %s) ON CONFLICT (tenant_id, kind) "
+                     "DO UPDATE SET url = EXCLUDED.url, secret_env = EXCLUDED.secret_env, model = EXCLUDED.model, "
+                     "ca = EXCLUDED.ca", (kind, url, secret_env, model, ca))
+        db.audit(conn, actor, "route.set", {"kind": kind, "url": url, "secret_env": secret_env, "model": model})
+
+
 def post_job(prefix, body, timeout):
-    """POST a job to an executor configured by PREFIX_URL, PREFIX_TOKEN and optional PREFIX_CA. Returns its JSON."""
+    """POST a job to the tenant's executor (route-set), else the installation's PREFIX_URL, PREFIX_TOKEN and optional
+    PREFIX_CA. Returns its JSON."""
+    own = route(prefix.removeprefix("ORCH_").lower())
+    url, token, ca = ((own["url"], os.environ[own["secret_env"]], own["ca"]) if own else
+                      (os.environ[f"{prefix}_URL"], os.environ[f"{prefix}_TOKEN"], os.environ.get(f"{prefix}_CA")))
     req = urllib.request.Request(
-        os.environ[f"{prefix}_URL"].rstrip("/") + "/v1/jobs", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ[f"{prefix}_TOKEN"]})
-    ctx = ssl.create_default_context(cafile=os.environ.get(f"{prefix}_CA"))
+        url.rstrip("/") + "/v1/jobs", data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
+    ctx = ssl.create_default_context(cafile=ca)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return json.load(resp)

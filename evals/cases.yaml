@@ -1,6 +1,6 @@
 # Prompts and what a good agent does with them: expect = capabilities it must call, never = ones it must not touch
 # (a refused attempt counts), answer_has = text the answer must contain. results = canned output per capability.
-# Run with: python -m orchestrator eval evals/cases.yaml
+# Run with: python -m orchestrator eval (this file and every skill's evals.yaml)
 - name: devices-at-a-site
   prompt: Which devices do we have in Colombo?
   devices: [{name: core-sw1, site: colombo}, {name: edge-r1, site: dubai}]

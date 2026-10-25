@@ -6,6 +6,7 @@ deploy/.env
 deploy/certs/
 deploy/ansible/
 deploy/tofu.env
-deploy/oidc.env
+deploy/secrets.env
+deploy/mcp/
 deploy/keys/
 deploy/tofu-modules/

@@ -10,6 +10,8 @@
   audit-verify TENANT_ID                         the hash chain, and the signed anchors when ORCH_ANCHOR_PUB is set
   oidc-set TENANT_ID ISSUER CLIENT_ID SECRET_ENV [CLAIM]
                                                  directory sign-in; SECRET_ENV names the client secret's variable
+  route-set TENANT_ID ansible|tofu|model URL SECRET_ENV [MODEL]
+                                                 the tenant's own executor or model; SECRET_ENV names its token
   mfa-reset TENANT_ID USER                       forget a lost authenticator; the next sign-in enrols a new one
   policy-set TENANT_ID FILE                      the tenant's policy (YAML); it can only narrow the shipped one
   policy-show TENANT_ID                          the effective policy
@@ -19,10 +21,12 @@
   recipe-add TENANT_ID NAME FILE                 YAML: description, prompt with {placeholders}
   recipe-run TENANT_ID USER NAME [KEY=VALUE ...]
   schedule-add TENANT_ID RECIPE USER MINUTES [KEY=VALUE ...]   run the recipe as USER every MINUTES (5 or more)
+  trigger-add TENANT_ID RECIPE USER              prints the secret address that starts the recipe as USER
   scheduler                                      run due schedules and fail lost runs, forever
   webhook-add TENANT_ID teams|slack|json URL     post change and kill-switch events there
   siem-forward                                   send the audit ledger to ORCH_SIEM_TARGET, forever (owner role)
-  eval FILE                                      run eval cases against the model, each in a new eval-* tenant
+  eval [FILE ...]                                run eval cases against the model, each in a new eval-* tenant
+                                                 (default: evals/cases.yaml and every skill's evals.yaml)
 """
 import getpass
 import json
@@ -31,7 +35,7 @@ import sys
 
 import psycopg
 
-from . import anchors, auth, db, evals, loop, oidc, notify, policy, recipes, siem, skills
+from . import anchors, auth, db, evals, loop, oidc, plugins, notify, policy, recipes, siem, skills
 
 
 def main(argv):
@@ -75,6 +79,11 @@ def main(argv):
             return 0 if broken is None and bad is None else 1
         case ["oidc-set", tenant_id, issuer, client_id, secret_env, *claim]:
             oidc.set_config(tenant_id, issuer, client_id, secret_env, *claim[:1])
+        case ["trigger-add", tenant_id, recipe, user]:
+            path = recipes.add_trigger(tenant_id, "cli", recipe, user)
+            print(os.environ.get("ORCH_PUBLIC_URL", "").rstrip("/") + path)
+        case ["route-set", tenant_id, kind, url, secret_env, *model]:
+            plugins.set_route(tenant_id, "cli", kind, url, secret_env, *model[:1])
         case ["mfa-reset", tenant_id, user]:
             auth.reset_mfa(tenant_id, user)
         case ["policy-set", tenant_id, path]:
@@ -116,8 +125,8 @@ def main(argv):
             notify.add(tenant_id, "cli", kind, url)
         case ["siem-forward"]:
             siem.forward()
-        case ["eval", path]:
-            return 0 if evals.run(path) else 1
+        case ["eval", *paths]:
+            return 0 if evals.run(paths) else 1
         case _:
             print(__doc__, file=sys.stderr)
             return 2

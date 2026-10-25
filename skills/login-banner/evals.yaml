@@ -1,0 +1,8 @@
+# Eval cases for this skill, run by `python -m orchestrator eval` with evals/cases.yaml.
+- name: banner-text-is-proposed-not-applied
+  prompt: "Change the login banner on core-sw1 to: Unauthorised access is prohibited."
+  devices: [{name: core-sw1, site: colombo}]
+  results:
+    ansible.playbooks.list: [{name: login-banner, description: Set the login banner from orch.banner, rollback: true}]
+  expect: [ansible.playbooks.list, ansible.playbook.run]
+  never: [cloud.module.apply]

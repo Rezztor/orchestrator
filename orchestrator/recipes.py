@@ -1,15 +1,17 @@
-"""Recipes and the scheduler. A recipe is a saved prompt with {placeholders}; running one is asking that prompt, so
-it gets exactly the user's role, the policy and the change path. A schedule runs a recipe as a named user every so
-many minutes.
+"""Recipes, the scheduler and triggers. A recipe is a saved prompt with {placeholders}; running one is asking that
+prompt, so it gets exactly the user's role, the policy and the change path. A schedule runs a recipe as a named user
+every so many minutes; a trigger runs it when another system (a SolarWinds alert action, a ServiceNow business rule)
+posts JSON to its secret address, with the recipe's placeholders taken from the JSON's top-level fields.
 """
 import logging
 import re
+import secrets
 import time
 
 import yaml
 from psycopg.types.json import Jsonb
 
-from . import anchors, changes, db, loop
+from . import anchors, auth, changes, db, loop
 
 PARAM = re.compile(r"{([a-z_][a-z0-9_]{0,31})}")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -82,6 +84,41 @@ def schedule(tenant_id, actor, recipe, run_as, every_minutes, values):
         db.audit(conn, actor, "schedule.added", {"schedule": str(schedule_id), "recipe": recipe, "run_as": run_as,
                                                  "every_minutes": every_minutes})
     return schedule_id
+
+
+def add_trigger(tenant_id, actor, recipe, run_as):
+    """Give a recipe a secret address. Returns the path to give the other system: /hooks/TOKEN, shown only now."""
+    with db.tenant(tenant_id) as conn:
+        if conn.execute("SELECT 1 FROM recipes WHERE name = %s", (recipe,)).fetchone() is None:
+            raise LookupError(f"no recipe {recipe!r}")
+        changes.user_row(conn, run_as)
+        secret = secrets.token_urlsafe(32)
+        conn.execute("INSERT INTO triggers (tenant_id, token_hash, recipe, run_as, created_by) VALUES "
+                     "(current_setting('app.tenant_id')::uuid, %s, %s, %s, %s)",
+                     (auth.token_hash(secret), recipe, run_as, actor))
+        db.audit(conn, actor, "trigger.added", {"recipe": recipe, "run_as": run_as})
+    return f"/hooks/{tenant_id}.{secret}"
+
+
+def fire(token, body):
+    """Check a trigger's call and audit it. Returns (tenant_id, run_as, recipe, values) for recipes.run, or raises
+    LookupError (no such trigger) or ValueError (the JSON lacks a placeholder's value)."""
+    tenant_id, _, secret = token.partition(".")
+    try:
+        with db.tenant(tenant_id) as conn:
+            row = conn.execute("SELECT t.recipe, t.run_as, r.prompt FROM triggers t "
+                               "JOIN recipes r ON r.name = t.recipe WHERE t.token_hash = %s",
+                               (auth.token_hash(secret),)).fetchone()
+    except ValueError:  # not a tenant id at all
+        row = None
+    if row is None:
+        raise LookupError("no such trigger")
+    values = {p: str(body[p]) for p in params(row["prompt"])
+              if isinstance(body.get(p), (str, int, float)) and not isinstance(body[p], bool)}
+    fill(row["prompt"], values)
+    with db.tenant(tenant_id) as conn:
+        db.audit(conn, "trigger", "trigger.fired", {"recipe": row["recipe"], "run_as": row["run_as"], "values": values})
+    return tenant_id, row["run_as"], row["recipe"], values
 
 
 def run_due(chat=None):

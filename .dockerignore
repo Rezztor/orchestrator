@@ -6,5 +6,7 @@ tests
 design
 examples
 deploy
+docs
+.github
 scripts
 release-*

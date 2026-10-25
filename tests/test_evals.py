@@ -1,15 +1,14 @@
-from pathlib import Path
-
 import yaml
 
 from orchestrator import evals, plugins
 from tests.test_core import scripted, tool_call
 
-CASES = yaml.safe_load((Path(__file__).parent.parent / "evals" / "cases.yaml").read_text())
+CASES = [c for p in evals.files() for c in yaml.safe_load(p.read_text())]
 
 
 def test_every_case_names_real_capabilities():
     known = set(plugins.load()) | {"agents.delegate"}
+    assert len({c["name"] for c in CASES}) == len(CASES)
     for case in CASES:
         named = set(case.get("expect", [])) | set(case.get("never", [])) | set(case.get("results", {}))
         assert named <= known, (case["name"], named - known)
