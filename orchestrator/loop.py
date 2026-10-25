@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from . import changes, db, guard, model, plugins, policy, skills
+from . import changes, db, guard, model, notify, plugins, policy, skills
 
 AGENTS = {a["name"]: a for a in (yaml.safe_load(p.read_text())
                                  for p in sorted((Path(__file__).resolve().parent.parent / "agents").glob("*.yaml")))}
@@ -43,15 +43,18 @@ def set_state(tenant_id, request_id, actor, state, answer=None, tokens=0, **data
         db.audit(conn, actor, "request.state", {"request": str(request_id), "state": state, **data})
 
 
-def set_kill_switch(conn, actor, reason):
-    """Stop (reason given) or resume (None) all agent work in the connection's tenant."""
-    if reason:
-        conn.execute("INSERT INTO kill_switch (tenant_id, reason, set_by) VALUES "
-                     "(current_setting('app.tenant_id')::uuid, %s, %s) ON CONFLICT (tenant_id) DO UPDATE "
-                     "SET reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = now()", (reason, actor))
-    else:
-        conn.execute("DELETE FROM kill_switch")
-    db.audit(conn, actor, "kill_switch.stop" if reason else "kill_switch.resume", {"reason": reason})
+def set_kill_switch(tenant_id, actor, reason):
+    """Stop (reason given) or resume (None) all agent work in the tenant, and tell its webhooks."""
+    with db.tenant(tenant_id) as conn:
+        if reason:
+            conn.execute("INSERT INTO kill_switch (tenant_id, reason, set_by) VALUES "
+                         "(current_setting('app.tenant_id')::uuid, %s, %s) ON CONFLICT (tenant_id) DO UPDATE "
+                         "SET reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = now()", (reason, actor))
+        else:
+            conn.execute("DELETE FROM kill_switch")
+        db.audit(conn, actor, "kill_switch.stop" if reason else "kill_switch.resume", {"reason": reason})
+    notify.send(tenant_id, "kill_switch.stop" if reason else "kill_switch.resume",
+                f"{actor} stopped all agent work: {reason}" if reason else f"{actor} resumed agent work.")
 
 
 def run(tenant_id, user_name, prompt, chat=None, caps=None, reviewer=None):
@@ -160,6 +163,10 @@ def run_tool(ctx, call):
             with db.tenant(ctx["tenant_id"]) as conn:
                 result = (changes.propose(conn, ctx, cap, args) if cap["kind"] == "change"
                           else guard.redact(cap["handler"](conn, **args)))
+            if cap["kind"] == "change":
+                notify.send(ctx["tenant_id"], "change.planned", f"{ctx['user']['name']} asked for {cap['id']} "
+                            f"({result['risk']} risk, {result['approvals_needed']} approval(s) needed).",
+                            change=result["change"])
     except (plugins.Refused, json.JSONDecodeError) as exc:
         with db.tenant(ctx["tenant_id"]) as conn:
             db.audit(conn, "policy", "tool.refused", {"request": request, "agent": ctx["agent"], "tool": name,

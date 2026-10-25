@@ -1,0 +1,23 @@
+name: cloud
+version: 0.1.0
+capabilities:
+  - id: cloud.modules.list
+    kind: read
+    risk: low
+    handler: list_modules
+    description: List the reviewed cloud modules (OpenTofu, for example Azure resources) the cloud executor can apply, with what each does.
+    params: {type: object, properties: {}, additionalProperties: false}
+  - id: cloud.module.apply
+    kind: change
+    risk: medium            # no automatic rollback in the cloud, so the policy raises it to high
+    handler: plan_module
+    apply: apply_module
+    description: Propose applying a reviewed cloud module to a workspace (an environment such as dev or prod) with variables. This only records the plan of resources to create, change or destroy; nothing changes until people approve it and run it.
+    params:
+      type: object
+      properties:
+        module: {type: string, description: A module name from cloud.modules.list.}
+        workspace: {type: string, description: "The environment, for example dev or prod."}
+        vars: {type: object, description: "The module's variables, name to plain value."}
+      required: [module, workspace]
+      additionalProperties: false

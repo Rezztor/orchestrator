@@ -52,11 +52,14 @@ async function act(path, body) {
 
 function card(c) {
   const li = el("li");
-  li.append(el("h3", `${c.capability} on ${(c.args.devices || []).join(", ")}`));
+  li.id = `change-${c.id}`;
+  const target = c.args.devices ? c.args.devices.join(", ") : `${c.args.module}/${c.args.workspace}`;
+  li.append(el("h3", `${c.capability} on ${target}`));
   const decided = c.decisions.filter((d) => d.decision === "approve").length;
   const expires = new Date(c.expires_at).toLocaleString();
   li.append(el("p", `${c.state} · risk ${c.risk} · approved by ${decided} of ${c.approvals_needed} · ` +
     `asked by ${c.requested_by} · ${c.plan.rollback ? "can be rolled back" : "no rollback"} · expires ${expires}`, "muted"));
+  if (c.change_record) li.append(el("p", `Change record: ${c.change_record}`));
   if (c.review) li.append(el("p", `Reviewer: ${c.review}`, "review"));
   for (const d of c.decisions) li.append(el("p", `${d.user}: ${d.decision}${d.reason ? ` (${d.reason})` : ""}`));
   const plan = el("details");
@@ -82,6 +85,12 @@ function card(c) {
         const reason = window.prompt("Why are you rejecting this change?");
         if (reason) decide(false, reason);
       }, "secondary"));
+  }
+  if (["PLANNED", "APPROVED"].includes(c.state) && (approver || c.requested_by === me.user)) {
+    actions.append(button(c.change_record ? "Change the record" : "Attach a change record", () => {
+      const number = window.prompt("Change record number (for example CHG0012345)", c.change_record || "");
+      if (number) act("/api/changes/record", { change: c.id, number });
+    }, "secondary"));
   }
   if (c.state === "APPROVED" && (approver || c.requested_by === me.user)) {
     actions.append(button("Run the change", () => act("/api/changes/run", { change: c.id })));

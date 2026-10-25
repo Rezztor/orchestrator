@@ -17,6 +17,8 @@
   recipe-run TENANT_ID USER NAME [KEY=VALUE ...]
   schedule-add TENANT_ID RECIPE USER MINUTES [KEY=VALUE ...]   run the recipe as USER every MINUTES (5 or more)
   scheduler                                      run due schedules, forever
+  webhook-add TENANT_ID teams|slack|json URL     post change and kill-switch events there
+  siem-forward                                   send the audit ledger to ORCH_SIEM_TARGET, forever (owner role)
 """
 import getpass
 import json
@@ -25,7 +27,7 @@ import sys
 
 import psycopg
 
-from . import auth, db, loop, policy, recipes, skills
+from . import auth, db, loop, notify, policy, recipes, siem, skills
 
 
 def main(argv):
@@ -75,11 +77,9 @@ def main(argv):
             with db.tenant(tenant_id) as conn:
                 print(json.dumps(policy.for_tenant(conn), indent=2))
         case ["stop", tenant_id, reason]:
-            with db.tenant(tenant_id) as conn:
-                loop.set_kill_switch(conn, "cli", reason)
+            loop.set_kill_switch(tenant_id, "cli", reason)
         case ["resume", tenant_id]:
-            with db.tenant(tenant_id) as conn:
-                loop.set_kill_switch(conn, "cli", None)
+            loop.set_kill_switch(tenant_id, "cli", None)
         case ["stop-all", reason]:
             with psycopg.connect(os.environ["ORCH_DB_URL"]) as conn:
                 conn.execute("INSERT INTO installation_kill (reason, set_by) VALUES (%s, 'cli') ON CONFLICT (only_row) "
@@ -100,6 +100,10 @@ def main(argv):
             print(recipes.schedule(tenant_id, "cli", recipe, user, int(minutes), dict(p.split("=", 1) for p in pairs)))
         case ["scheduler"]:
             recipes.scheduler()
+        case ["webhook-add", tenant_id, kind, url]:
+            notify.add(tenant_id, "cli", kind, url)
+        case ["siem-forward"]:
+            siem.forward()
         case _:
             print(__doc__, file=sys.stderr)
             return 2

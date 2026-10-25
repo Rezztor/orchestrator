@@ -110,8 +110,9 @@ class Handler(BaseHTTPRequestHandler):
             reason = body.get("reason")
             if body.get("stop") is True and not (isinstance(reason, str) and reason.strip()):
                 return self.send(400, {"error": "say why you are stopping agent work"})
+            loop.set_kill_switch(me["tenant_id"], me["user"],
+                                 reason.strip()[:500] if body.get("stop") is True else None)
             with db.tenant(me["tenant_id"]) as conn:
-                loop.set_kill_switch(conn, me["user"], reason.strip()[:500] if body.get("stop") is True else None)
                 return self.send(200, {"stopped": policy.stopped(conn)})
         if self.path in ("/api/skills/decide", "/api/recipes/run"):
             me = auth.session(self.token())
@@ -135,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
             if state == "FAILED":
                 answer = f"This request could not be completed. Reference {request_id}."
             return self.send(200, {"request": request_id, "state": state, "answer": answer})
-        if self.path in ("/api/changes/decide", "/api/changes/run"):
+        if self.path in ("/api/changes/decide", "/api/changes/run", "/api/changes/record"):
             me = auth.session(self.token())
             if not me:
                 return self.send(401, {"error": "sign in"})
@@ -144,6 +145,11 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self.send(400, {"error": "change must be a change id"})
             try:
+                if self.path == "/api/changes/record":
+                    if not isinstance(body.get("number"), str):
+                        return self.send(400, {"error": "number is required"})
+                    changes.set_record(me["tenant_id"], me["user"], change_id, body["number"].strip().upper())
+                    return self.send(200, {"ok": True})
                 if self.path == "/api/changes/run":
                     change = changes.start(me["tenant_id"], me["user"], change_id)
                     # the executor can take many minutes; the page polls /api/changes for the outcome
@@ -164,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {"error": str(exc)})
             except plugins.Refused as exc:
                 return self.send(409, {"error": str(exc)})
+            except ValueError as exc:
+                return self.send(400, {"error": str(exc)})
         self.send(404, {"error": "not found"})
 
 

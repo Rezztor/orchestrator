@@ -1,33 +1,10 @@
-import json
-import os
-import ssl
-import urllib.error
-import urllib.request
-
-from orchestrator.plugins import Refused
+from orchestrator.plugins import known_devices as known, post_job
 
 # shortcut: one executor per installation (ORCH_ANSIBLE_URL); binding an executor to each tenant comes with tenant settings.
 
 
 def job(body, timeout):
-    req = urllib.request.Request(
-        os.environ["ORCH_ANSIBLE_URL"].rstrip("/") + "/v1/jobs", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ["ORCH_ANSIBLE_TOKEN"]})
-    ctx = ssl.create_default_context(cafile=os.environ.get("ORCH_ANSIBLE_CA"))
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as exc:
-        raise Refused(f"executor answered {exc.code}: {exc.read()[:300].decode(errors='replace')}")
-
-
-def known(conn, devices):
-    if not 0 < len(devices) <= 50:
-        raise Refused("ask for 1 to 50 devices at a time")
-    found = {r["name"] for r in conn.execute("SELECT name FROM devices WHERE name = ANY(%s::text[])", (devices,))}
-    unknown = sorted(set(devices) - found)
-    if unknown:  # the executor only ever hears of this tenant's own devices
-        raise Refused(f"not in this tenant's inventory: {', '.join(unknown)}")
+    return post_job("ORCH_ANSIBLE", body, timeout)
 
 
 def read_facts(conn, devices):

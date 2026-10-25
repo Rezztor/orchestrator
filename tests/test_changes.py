@@ -115,12 +115,11 @@ def test_a_closed_window_the_kill_switch_and_expiry_stop_a_run(acme):
     with pytest.raises(plugins.Refused, match="window is closed"):
         changes.run(acme, "oscar", change, caps)
     set_policy(acme, "{}")
-    with db.tenant(acme) as conn:
-        loop.set_kill_switch(conn, "alice", "incident")
+    loop.set_kill_switch(acme, "alice", "incident")
     with pytest.raises(plugins.Refused, match="stopped: incident"):
         changes.run(acme, "oscar", change, caps)
+    loop.set_kill_switch(acme, "alice", None)
     with db.tenant(acme) as conn:
-        loop.set_kill_switch(conn, "alice", None)
         conn.execute("UPDATE changes SET expires_at = now() - interval '1 minute'")
     with pytest.raises(plugins.Refused, match="EXPIRED"):
         changes.run(acme, "oscar", change, caps)

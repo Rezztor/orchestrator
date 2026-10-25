@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from psycopg.types.json import Jsonb
 
-from . import db, guard, policy
+from . import db, guard, notify, policy, tickets
 from .plugins import Refused
 
 APPROVER_ROLES = ("approver", "tenant-admin")
@@ -101,7 +101,28 @@ def decide(tenant_id, user_name, change_id, digest, approve, reason=None):
         conn.execute("UPDATE changes SET state = %s, updated_at = now() WHERE id = %s", (state, change_id))
         db.audit(conn, user_name, "change.approved" if approve else "change.rejected",
                  {"change": str(change_id), "digest": digest, "reason": reason, "state": state})
-        return state
+    if state != "PLANNED":
+        notify.send(tenant_id, f"change.{state.lower()}", f"Change {change['capability']} was "
+                    f"{state.lower()} by {user_name}{f': {reason}' if reason else ''}.", change=str(change_id))
+    return state
+
+
+def set_record(tenant_id, user_name, change_id, number):
+    """Attach a change record number (the requester or an approver) while the change has not run."""
+    if not tickets.NUMBER.fullmatch(number):
+        raise ValueError("a change record number looks like CHG0012345")
+    with db.tenant(tenant_id) as conn:
+        user = user_row(conn, user_name)
+        change = conn.execute("SELECT requested_by, state FROM changes WHERE id = %s FOR UPDATE",
+                              (change_id,)).fetchone()
+        if change is None:
+            raise LookupError("no such change")
+        if change["requested_by"] != user["id"] and user["role"] not in APPROVER_ROLES:
+            raise PermissionError("only the person who asked or an approver can attach a change record")
+        if change["state"] not in ("PLANNED", "APPROVED"):
+            raise Refused(f"this change is {change['state']}; its record can no longer change")
+        conn.execute("UPDATE changes SET change_record = %s, updated_at = now() WHERE id = %s", (number, change_id))
+        db.audit(conn, user_name, "change.record", {"change": str(change_id), "change_record": number})
 
 
 def start(tenant_id, user_name, change_id):
@@ -121,6 +142,10 @@ def start(tenant_id, user_name, change_id):
             raise Refused(f"agent work is stopped: {kill}")
         if not policy.window_open(pol, datetime.now(timezone.utc)):
             raise Refused("the change window is closed")
+        if change["risk"] in pol["change_record"]:
+            if not change["change_record"]:
+                raise Refused(f"a {change['risk']}-risk change needs a change record; attach its number first")
+            tickets.check(change["change_record"])
         conn.execute("UPDATE changes SET state = 'EXECUTING', updated_at = now() WHERE id = %s", (change_id,))
         db.audit(conn, user_name, "change.executing", {"change": str(change_id), "digest": change["digest"]})
         return change
@@ -138,6 +163,17 @@ def finish(tenant_id, change, caps):
                      (state, Jsonb(result), change["id"]))
         db.audit(conn, "executor", "change." + state.lower(), {
             "change": str(change["id"]), "outcome": result.get("outcome"), "result_digest": db.digest(result)})
+    text = f"Change {change['capability']} ended {state} ({result.get('outcome')})."
+    if change["change_record"]:
+        try:
+            tickets.note(change["change_record"], f"Rezztor Orchestrator: {text} Reference {change['id']}.")
+            kind, data = "ticket.noted", {}
+        except Refused as exc:
+            kind, data = "ticket.note_failed", {"error": str(exc)}
+        with db.tenant(tenant_id) as conn:
+            db.audit(conn, "executor", kind, {"change": str(change["id"]), "change_record": change["change_record"],
+                                              **data})
+    notify.send(tenant_id, "change." + state.lower(), text, change=str(change["id"]))
     return state, result
 
 
@@ -148,10 +184,11 @@ def run(tenant_id, user_name, change_id, caps):
 def listing(conn):
     """The tenant's 50 latest changes, as the page shows them."""
     rows = conn.execute(
-        "SELECT c.id, c.capability, c.args, c.plan, c.digest, c.risk, c.approvals_needed, c.review, c.result, "
-        "c.created_at, c.expires_at, u.name AS requested_by, CASE WHEN c.state IN ('PLANNED', 'APPROVED') "
-        "AND c.expires_at <= now() THEN 'EXPIRED' ELSE c.state END AS state, coalesce((SELECT json_agg(json_build_object('user', d.name, "
-        "'decision', a.decision, 'reason', a.reason) ORDER BY a.at) FROM approvals a JOIN users d ON d.id = a.user_id "
-        "WHERE a.change_id = c.id), '[]') AS decisions "
+        "SELECT c.id, c.capability, c.args, c.plan, c.digest, c.risk, c.approvals_needed, c.review, c.change_record, "
+        "c.result, c.created_at, c.expires_at, u.name AS requested_by, CASE WHEN c.state IN ('PLANNED', 'APPROVED') "
+        "AND c.expires_at <= now() THEN 'EXPIRED' ELSE c.state END AS state, "
+        "coalesce((SELECT json_agg(json_build_object('user', d.name, 'decision', a.decision, 'reason', a.reason) "
+        "ORDER BY a.at) FROM approvals a JOIN users d ON d.id = a.user_id WHERE a.change_id = c.id), '[]') "
+        "AS decisions "
         "FROM changes c JOIN users u ON u.id = c.requested_by ORDER BY c.created_at DESC LIMIT 50").fetchall()
     return [{**r, "args": guard.redact(r["args"])} for r in rows]

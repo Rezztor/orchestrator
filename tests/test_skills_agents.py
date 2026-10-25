@@ -86,7 +86,7 @@ def test_a_specialist_gets_narrowed_tools_and_shares_the_budget(acme):
     assert (state, answer) == ("DONE", "Colombo has sw1.")
     assert "agents__delegate" in seen_tools[0] and "ansible__playbook__run" in seen_tools[0]
     assert seen_tools[1] == ["ansible__facts__read", "ansible__playbooks__list", "inventory__devices__list",
-                             "skills__read"]
+                             "skills__read", "solarwinds__nodes__status"]
     assert "no capability 'agents__delegate'" in json.loads(inner.seen[3][-1]["content"])["refused"]
     findings = json.loads(inner.seen[4][-1]["content"])["untrusted_tool_output"]["result"]
     assert findings == {"agent": "network", "findings": "sw1 is in Colombo."}
@@ -110,7 +110,7 @@ def test_a_viewer_delegating_gets_no_more_than_a_viewer(acme):
         tools.append(sorted(t["function"]["name"] for t in offered))
         return next(replies)
     loop.run(acme, "vic", "facts for sw1", chat=chat)
-    assert tools[1] == ["inventory__devices__list", "skills__read"]
+    assert tools[1] == ["inventory__devices__list", "skills__read", "solarwinds__nodes__status"]
 
 
 def test_the_reviewer_notes_every_plan_and_its_absence_does_not_block(acme):
