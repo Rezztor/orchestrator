@@ -1,6 +1,6 @@
 # Rezztor Orchestrator — design plan
 
-**Status:** accepted 2026-10-25; phases 1–6 merged; the gaps the plan still named are being closed (see the README) · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
+**Status:** accepted 2026-10-25; phases 1–6 merged, then the plan's later controls (§14a says what was built and what was decided against) · **Date:** 2026-10-25 · **Diagrams:** [`design/index.html`](design/index.html)
 
 ## 1. What we are building
 
@@ -285,6 +285,27 @@ job protocol, so each can also run on a customer's segment.
 | 4 | Skills (shipped, tenant, induced with review), recipes, scheduler, specialist sub-agents, reviewer agent | 3 wks |
 | 5 | Azure executor, SolarWinds, ticketing (CR source), SIEM, ChatOps approvals | 4 wks |
 | 6 | Hardening: red-team suite (prompt injection corpus, approval replay, plugin escape), eval suite, HA, release build | 3 wks |
+
+## 14a. Where the plan stands (2026-10-25)
+
+Every phase above is built and merged (PRs #2–#7), and so are the controls the plan named outside the phases: TOTP
+for approvers and administrators, OpenID Connect sign-in, break-glass, freeze periods, time and daily token budgets,
+signed audit anchors, the trajectory view and change evidence export, CEF, per-tenant executors and model routing,
+inbound triggers, read-only customer MCP servers, skill eval cases, CI and decision records (PRs #8–#9). Why each
+design is the way it is: `docs/decisions/`.
+
+Decided against or deferred, each for a stated reason (none blocks a customer installation):
+
+| Item | Decision |
+|---|---|
+| Device bridge change capabilities (phase 3) | Waits for the bridge's API; no bridge code or documentation is in this project's reach. The plugin contract and the executor job protocol are ready for it. |
+| ChatOps approval buttons (phase 5) | Not built: a chat button cannot prove who pressed it. Webhooks link to the change on the page, where people approve signed in, with a code. |
+| Licence server / portal plugins | Not built: those are Rezztor's own back office for EAgent; a customer's orchestrator has no reason to call them. |
+| Mail plugin, Jira | Not built: webhooks reach Teams, Slack and JSON receivers; ServiceNow is the change-record source. Add when a customer asks. |
+| Workspaces under a tenant, custom roles, SCIM | Deferred: four roles and per-tenant policy narrowing cover the first customers; users are added with `user-add` or come from the directory by name. |
+| Per-plugin processes with their own egress, per-tenant vault keys | Deferred: plugins are reviewed code in the release, credentials sit in executors and named environment variables. |
+| A trained injection classifier, "claims must cite a tool result", circuit breaker | Deferred: pattern guard plus untrusted marking, budgets and the kill switch hold today; revisit with real traffic. |
+| nftables egress guard, shipped local model | Deferred to the installer: Compose keeps the database on an internal network; a tenant can route to a local model. |
 
 ## 15. Decisions (RIfky, 2026-10-25)
 
