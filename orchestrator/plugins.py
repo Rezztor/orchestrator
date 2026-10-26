@@ -29,6 +29,13 @@ class Refused(Exception):
     """A call the host will not run. The message goes back to the model and into the audit."""
 
 
+def setting(name):
+    """A connection's environment variable. One not set is refused, so the model hears it is not connected."""
+    if not os.environ.get(name):
+        raise Refused(f"this connection is not configured here ({name} is not set)")
+    return os.environ[name]
+
+
 def load(plugin_dir=PLUGIN_DIR):
     """Return {capability id: capability dict with its handler}."""
     caps = {}
@@ -108,8 +115,8 @@ def post_job(prefix, body, timeout):
     """POST a job to the tenant's executor (route-set), else the installation's PREFIX_URL, PREFIX_TOKEN and optional
     PREFIX_CA. Returns its JSON."""
     own = route(prefix.removeprefix("ORCH_").lower())
-    url, token, ca = ((own["url"], os.environ[own["secret_env"]], own["ca"]) if own else
-                      (os.environ[f"{prefix}_URL"], os.environ[f"{prefix}_TOKEN"], os.environ.get(f"{prefix}_CA")))
+    url, token, ca = ((own["url"], setting(own["secret_env"]), own["ca"]) if own else
+                      (setting(f"{prefix}_URL"), setting(f"{prefix}_TOKEN"), os.environ.get(f"{prefix}_CA")))
     req = urllib.request.Request(
         url.rstrip("/") + "/v1/jobs", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})

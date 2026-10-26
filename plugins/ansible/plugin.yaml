@@ -16,7 +16,7 @@ capabilities:
     kind: read
     risk: low
     handler: list_playbooks
-    description: List the reviewed playbooks the Ansible executor can run, with what each does and whether it can be backed out.
+    description: List the reviewed playbooks the Ansible executor can run, with what each does, the variables it takes and whether it can be backed out.
     params: {type: object, properties: {}, additionalProperties: false}
   - id: ansible.playbook.run
     kind: change
@@ -29,6 +29,6 @@ capabilities:
       properties:
         playbook: {type: string, description: A playbook name from ansible.playbooks.list.}
         devices: {type: array, items: {type: string}, description: Device names from the inventory, at most 50.}
-        vars: {type: object, description: "The playbook's variables, name to plain value."}
+        vars: {type: object, description: "The playbook's variables as ansible.playbooks.list names them, name to plain value."}
       required: [playbook, devices]
       additionalProperties: false

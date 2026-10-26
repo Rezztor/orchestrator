@@ -23,7 +23,10 @@ def positive(value):
 
 def parse(text):
     """Validate a tenant policy document. Raises ValueError with the first problem found."""
-    doc = yaml.safe_load(text) or {}
+    try:
+        doc = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"the policy is not valid YAML: {str(exc).splitlines()[0]}") from None
     if not isinstance(doc, dict) or set(doc) - {"roles", "deny", "limits", "approvals", "change_window",
                                                 "change_record", "freeze"}:
         raise ValueError("a policy has only roles, deny, limits, approvals, change_record, change_window and freeze")

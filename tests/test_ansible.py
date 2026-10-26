@@ -142,7 +142,7 @@ def test_the_change_path_end_to_end(database, executor, tmp_path):
                     {"content": "Planned."})
     assert loop.run(t, "oscar", "Set the banner on lab1 to Hi", chat=chat)[1] == "DONE"
     books = json.loads(chat.seen[1][-1]["content"])["untrusted_tool_output"]["result"]
-    assert {"name": "banner", "description": "Set the login banner", "rollback": True} in books
+    assert {"name": "banner", "description": "Set the login banner", "rollback": True, "vars": ["path", "text"]} in books
     planned = json.loads(chat.seen[2][-1]["content"])["untrusted_tool_output"]["result"]
     assert (planned["state"], planned["risk"]) == ("PLANNED", "medium") and not banner.exists()
 
@@ -151,3 +151,15 @@ def test_the_change_path_end_to_end(database, executor, tmp_path):
     assert changes.decide(t, "alice", planned["change"], digest, True) == "APPROVED"
     state, result = changes.run(t, "oscar", planned["change"], plugins.load())
     assert (state, banner.read_text()) == ("VERIFIED", "Hi\n")
+
+
+def test_a_failed_dry_run_tells_the_agent_why(database, executor, tmp_path):
+    t = db.create_tenant("acme", "alice")
+    add_user(t, "oscar", "operator")
+    add_device(t, "lab1", "colombo")
+    chat = scripted(tool_call("ansible__playbook__run", {"playbook": "broken", "devices": ["lab1"],
+                                                         "vars": {"path": str(tmp_path / "motd"), "text": "Hi"}}),
+                    {"content": "It failed."})
+    loop.run(t, "oscar", "Set the banner on lab1 to Hi", chat=chat)
+    refused = json.loads(chat.seen[1][-1]["content"])["refused"]
+    assert refused == "the dry run did not succeed on lab1 (failed: device refused)"

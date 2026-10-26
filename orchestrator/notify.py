@@ -40,7 +40,7 @@ def send(tenant_id, event, text, **data):
         hooks = conn.execute("SELECT kind, url FROM webhooks").fetchall()
     if not hooks:
         return None
-    link = os.environ.get("ORCH_PUBLIC_URL", "").rstrip("/") + "/" + (f"#change-{data['change']}" if "change" in data
+    link = os.environ.get("ORCH_PUBLIC_URL", "").rstrip("/") + "/" + (f"#/changes/{data['change']}" if "change" in data
                                                                        else "")
 
     def post_all():
