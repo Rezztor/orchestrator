@@ -1,0 +1,40 @@
+name: Something does not work
+description: A bug, a crash, or behaviour that differs from the documentation.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste passwords, keys, tokens or customer data. Replace them with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: ORCH_VERSION, or the commit you built from.
+    validations:
+      required: true
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The command, the prompt, or the steps on the page.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The message on the page, the request's Steps, or the log lines. A FAILED request shows its reason in Steps.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Model server and model, which executors and integrations are on, host OS.

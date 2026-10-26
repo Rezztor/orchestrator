@@ -1,10 +1,10 @@
 # The test suite on Rezztor's own runner (GitHub-hosted runners are not used). The runner needs Docker for the
 # PostgreSQL service and Python 3.12 or newer; register it on the repository with the label "orchestrator".
 name: test
+# Push only, never pull_request: the repository is public and a pull request from a fork would run its own code on
+# this runner. Our pull requests come from branches here, so their pushes are tested.
 on:
   push:
-    branches: [main]
-  pull_request:
 permissions:
   contents: read
 jobs:

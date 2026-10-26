@@ -1,0 +1,20 @@
+name: An idea or a missing feature
+description: Something the orchestrator should do that it does not do today.
+labels: [idea]
+body:
+  - type: markdown
+    attributes:
+      value: Rezztor writes all of the code, so please describe the need rather than sending code (CONTRIBUTING.md).
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The task, who does it, and how you do it today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+    validations:
+      required: true
