@@ -100,6 +100,9 @@ def test_policy_show_and_device_critical_from_the_command_line(site, tmp_path, c
     assert '"2026-12-20 00:00:00+00:00"' in capsys.readouterr().out
     assert main(["device-critical", str(_tenant()), "no-such-sw", "yes"]) == 1
     assert capsys.readouterr().err == "error: no device 'no-such-sw'\n"
+    done = subprocess.run([sys.executable, "-m", "orchestrator", "policy-set", str(_tenant()), str(tmp_path / "gone")],
+                          capture_output=True, text=True)
+    assert done.returncode == 1 and done.stderr.startswith("error: [Errno 2] No such file")
 
 
 def _tenant():
