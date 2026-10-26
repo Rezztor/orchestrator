@@ -133,6 +133,13 @@ def test_the_agent_proposes_a_cloud_change_that_needs_two_people(acme, cloud):
 
 # --- SolarWinds ------------------------------------------------------------------------------------------------------
 
+def test_a_connection_that_is_not_configured_is_refused_not_a_crash(acme, monkeypatch):
+    monkeypatch.delenv("ORCH_SOLARWINDS_URL", raising=False)
+    chat = scripted(tool_call("solarwinds__nodes__status", {"devices": ["sw1"]}), {"content": "not connected"})
+    assert loop.run(acme, "oscar", "is sw1 up?", chat=chat)[1] == "DONE"
+    assert "ORCH_SOLARWINDS_URL is not set" in json.loads(chat.seen[1][-1]["content"])["refused"]
+
+
 def test_solarwinds_status_uses_parameters_and_only_the_tenants_devices(acme, fake, monkeypatch):
     monkeypatch.setenv("ORCH_SOLARWINDS_URL", fake.url)
     monkeypatch.setenv("ORCH_SOLARWINDS_USER", "orch-read")
@@ -221,7 +228,7 @@ def test_change_events_reach_every_webhook_with_a_link(acme, fake, monkeypatch):
     changes.run(acme, "oscar", change, caps)
     events = [r["body"] for r in fake.seen]
     teams, slack, plain = events[0:3]  # change.planned first, to all three
-    assert teams["attachments"][0]["content"]["actions"][0]["url"] == f"https://orch.example.com/#change-{change}"
+    assert teams["attachments"][0]["content"]["actions"][0]["url"] == f"https://orch.example.com/#/changes/{change}"
     assert "oscar asked for ansible.test.set" in slack["text"] and plain["event"] == "change.planned"
     assert [e["event"] for e in events if "event" in e] == ["change.planned", "change.approved", "change.verified"]
 

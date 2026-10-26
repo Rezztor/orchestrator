@@ -51,9 +51,10 @@ def propose(conn, ctx, cap, args):
     told."""
     request_id, user, pol = ctx["request_id"], ctx["user"], ctx["pol"]
     plan = cap["handler"](conn, **args)
-    bad = {h: v["status"] for h, v in plan["hosts"].items() if v["status"] != "ok"}
+    bad = {h: next((f"{v['status']}: {t['message']}" for t in v.get("tasks", []) if t.get("message")), v["status"])
+           for h, v in plan["hosts"].items() if v["status"] != "ok"}
     if bad:
-        raise Refused("the dry run did not succeed on " + ", ".join(f"{h} ({s})" for h, s in sorted(bad.items())))
+        raise Refused(guard.redact("the dry run did not succeed on " + ", ".join(f"{h} ({s})" for h, s in sorted(bad.items()))))
     critical = conn.execute("SELECT count(*) AS n FROM devices WHERE critical AND name = ANY(%s::text[])",
                             (plan["targets"],)).fetchone()["n"]
     risk = policy.risk(cap, plan["rollback"], critical)

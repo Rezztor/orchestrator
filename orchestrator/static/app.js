@@ -98,12 +98,12 @@ async function act(button, work, done) {
 }
 
 // a button that asks to be pressed a second time, instead of a browser dialog
-function sure(label, armed, work, cls = "danger small") {
+function sure(label, armed, work, done, cls = "danger small") {
   const b = h("button", { type: "button", class: cls, onblur: () => { b.classList.remove("armed"); b.textContent = label; } }, label);
   b.addEventListener("click", () => {
     if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = armed; return; }
     b.classList.remove("armed");
-    act(b, work);
+    act(b, work, done);
   });
   return b;
 }
@@ -541,7 +541,7 @@ function change(c, pol) {
           field("Reason", why), h("div", { class: "actions" }, sure("Approve alone", "Press again to break glass", () => {
             if (!why.value.trim()) throw new Error("Say what the emergency is.");
             return api("/api/changes/break-glass", { change: c.id, digest: c.digest, reason: why.value.trim() });
-          }, "danger")))));
+          }, "Approved alone. Every webhook was told and the ledger flags it.", "danger")))));
     }
   } else if (c.state === "PLANNED" && isApprover()) {
     actions.append(h("p", { class: "muted" }, mine ? "You asked for this change, so other people approve it." : "You have decided on this change."));
@@ -602,7 +602,7 @@ async function overview() {
             field("Reason", reason), h("div", { class: "actions" }, sure("Stop all agent work", "Press again to stop", () => {
               if (!reason.value.trim()) throw new Error("Say why you are stopping agent work.");
               return api("/api/kill-switch", { stop: true, reason: reason.value.trim() });
-            }, "danger"))])),
+            }, "All agent work is stopped.", "danger"))])),
     links && h("section", { class: "card" }, h("div", { class: "actions" }, h("h2", {}, "Connected systems"), h("a", { href: "#/integrations" }, "Integrations")),
       h("div", { class: "actions" }, [["Model", links.model], ["Ansible", links.ansible], ["OpenTofu", links.tofu],
         ["Directory", links.directory], ["ServiceNow", links.servicenow], ["SolarWinds", links.solarwinds]].map(([name, on]) =>
@@ -702,7 +702,8 @@ async function skillsScreen() {
       h("details", {}, h("summary", {}, "Procedure"), markdown(s.body)),
       isAdmin() && s.state !== "retired" && h("div", { class: "actions" },
         s.state === "proposed" && h("button", { type: "button", onclick: (e) => act(e.currentTarget, () => api("/api/skills/decide", { name: s.name, approve: true }), `${s.name} approved.`) }, "Approve skill"),
-        sure(s.state === "proposed" ? "Reject" : "Retire", "Press again to confirm", () => api("/api/skills/decide", { name: s.name, approve: false })))))) : h("p", { class: "empty" }, "No skills of your own yet."));
+        sure(s.state === "proposed" ? "Reject" : "Retire", "Press again to confirm", () => api("/api/skills/decide", { name: s.name, approve: false }),
+          `${s.name} ${s.state === "proposed" ? "rejected" : "retired"}.`))))) : h("p", { class: "empty" }, "No skills of your own yet."));
 }
 
 // ---------- People and policy ----------
@@ -729,7 +730,7 @@ async function peopleScreen() {
         h("td", {}, p.authenticator ? "Set" : APPROVERS.includes(p.role) ? "Not set: added at next sign-in" : "Not needed"),
         h("td", {}, ago(p.last_seen)),
         h("td", {}, p.authenticator && p.name !== me.user && sure("Reset authenticator", "Press again to reset", () =>
-          api("/api/people/mfa-reset", { name: p.name }))))))),
+          api("/api/people/mfa-reset", { name: p.name }), `${p.name} adds a new authenticator at the next sign-in.`)))))),
     directory && h("p", { class: "muted" }, "Your company directory signs people in; someone who signs in from it for the first time is added as a viewer.")),
     h("form", { class: "card", onsubmit: (e) => {
       e.preventDefault();
@@ -737,14 +738,14 @@ async function peopleScreen() {
     } }, h("h2", {}, "Add a person"), h("div", { class: "row" }, field("Username", name), field("Role", role),
       field("Password", password, directory ? "Leave empty for directory sign-in" : "At least 12 characters"), h("button", { type: "submit" }, "Add person"))),
     h("div", { class: "split" },
-      h("section", { class: "card" }, h("h2", {}, "Approvals a change needs"), h("table", {},
+      h("section", { class: "card scroll" }, h("h2", {}, "Approvals a change needs"), h("table", {},
         h("thead", {}, h("tr", {}, ["Risk", "Here", "Shipped"].map((t) => h("th", {}, t)))),
         h("tbody", {}, Object.entries(eff.approvals).map(([risk, n]) => h("tr", {}, h("td", {}, risk), h("td", {}, h("strong", {}, n)), h("td", { class: "muted" }, shipped.approvals[risk]))))),
       facts([["Change record for", eff.change_record.join(", ") || "no risk class"],
         ["Change window", eff.windows.map((w) => `${w.days.join(", ")} ${w.start}–${w.end} UTC`).join("; ") || "any time"],
         ["Freezes", eff.freeze.map((f) => `${stamp(f.start)} to ${stamp(f.end)}: ${f.reason}`).join("; ") || "none"],
         ["Denied", eff.deny.join(", ") || "nothing"]])),
-      h("section", { class: "card" }, h("h2", {}, "Limits"), h("table", {},
+      h("section", { class: "card scroll" }, h("h2", {}, "Limits"), h("table", {},
         h("thead", {}, h("tr", {}, ["Limit", "Here", "Shipped"].map((t) => h("th", {}, t)))),
         h("tbody", {}, Object.entries(eff.limits).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", {}, h("strong", {}, v.toLocaleString())),
           h("td", { class: "muted" }, shipped.limits[k].toLocaleString()))))))),
@@ -789,7 +790,7 @@ async function integrations() {
     h("section", { class: "card" }, h("h2", {}, "Notifications"),
       h("p", { class: "muted" }, "Teams, Slack or any JSON receiver is told when a change waits for approval, runs, or is approved alone. The address carries its own secret, so only its host is shown."),
       c.webhooks.length ? h("table", {}, h("tbody", {}, c.webhooks.map((w) => h("tr", {}, h("td", {}, w.kind), h("td", { class: "mono" }, w.host),
-        h("td", {}, sure("Remove", "Press again to remove", () => api("/api/webhooks/remove", { id: w.id }))))))) : h("p", {}, "No webhooks yet."),
+        h("td", {}, sure("Remove", "Press again to remove", () => api("/api/webhooks/remove", { id: w.id }), "Webhook removed.")))))) : h("p", {}, "No webhooks yet."),
       h("form", { onsubmit: (e) => {
         e.preventDefault();
         act(e.submitter, () => api("/api/webhooks/add", { kind: kind.value, url: url.value.trim() }), "Webhook added.");
@@ -798,7 +799,7 @@ async function integrations() {
       h("p", { class: "muted" }, "Another system (an alert, a ticket) starts a recipe by sending JSON to a secret address. The recipe runs as the person named, under their role."),
       c.triggers.length ? h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {}, ["Recipe", "Runs as", "Made by", "Made", ""].map((t) => h("th", {}, t)))),
         h("tbody", {}, c.triggers.map((t) => h("tr", {}, h("td", {}, t.recipe), h("td", {}, t.run_as), h("td", {}, t.created_by), h("td", {}, stamp(t.created_at)),
-          h("td", {}, sure("Revoke", "Press again to revoke", () => api("/api/triggers/remove", { id: t.id })))))))) : h("p", {}, "No triggers yet."),
+          h("td", {}, sure("Revoke", "Press again to revoke", () => api("/api/triggers/remove", { id: t.id }), "Trigger revoked: its address no longer works."))))))) : h("p", {}, "No triggers yet."),
       lib.recipes.length ? h("form", { onsubmit: async (e) => {
         e.preventDefault();
         const res = await act(e.submitter, () => api("/api/triggers/add", { recipe: recipe.value, run_as: runAs.value }), false);

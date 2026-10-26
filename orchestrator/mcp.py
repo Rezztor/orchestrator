@@ -27,7 +27,7 @@ from pathlib import Path
 
 import yaml
 
-from .plugins import Refused
+from .plugins import Refused, setting
 
 PROTOCOL = "2025-06-18"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
@@ -77,7 +77,7 @@ def call_tool(url, token, tool, arguments, timeout=60):
 
 
 def handler(spec, tool, conn, **args):
-    return call_tool(os.environ[spec["url_env"]], spec.get("token_env") and os.environ[spec["token_env"]], tool, args)
+    return call_tool(setting(spec["url_env"]), spec.get("token_env") and setting(spec["token_env"]), tool, args)
 
 
 def load(folder):

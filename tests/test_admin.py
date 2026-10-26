@@ -1,5 +1,6 @@
 """The screens' data and a tenant administrator's changes from the page."""
 from orchestrator import db, model, recipes
+from orchestrator.__main__ import main
 from tests.test_core import scripted, tool_call
 from tests.test_web import call, sign_in, site  # noqa: F401  (site is a fixture)
 
@@ -35,6 +36,7 @@ def test_devices_policy_and_connections_from_the_page(site, monkeypatch):
     assert devices == {"core-sw1": False, "edge-r1": True}
 
     assert call(site, "/api/policy/set", {"document": "approvals: {high: 0}"}, cookie=alice)[0] == 400
+    assert call(site, "/api/policy/set", {"document": "approvals: [high"}, cookie=alice)[0] == 400
     assert call(site, "/api/policy/set", {"document": "approvals: {high: 3}"}, cookie=alice)[0] == 200
     assert call(site, "/api/policy", cookie=alice)[1]["effective"]["approvals"]["high"] == 3
 
@@ -70,6 +72,14 @@ def test_history_overview_and_the_ledger(site, monkeypatch):
     assert newest and all(r["kind"].startswith("auth.") for r in newest)
     assert call(site, f"/api/audit?before={newest[-1]['seq']}&kind=auth.", cookie=alice)[1]["rows"] == [
         r for r in newest if r["seq"] < newest[-1]["seq"]]
+
+
+def test_policy_set_from_the_command_line(site, tmp_path):
+    path = tmp_path / "policy.yaml"
+    path.write_text("approvals: {high: 4}\n")
+    main(["policy-set", str(_tenant()), str(path)])
+    with db.tenant(_tenant()) as conn:
+        assert conn.execute("SELECT set_by FROM policies").fetchone()["set_by"] == "cli"
 
 
 def _tenant():

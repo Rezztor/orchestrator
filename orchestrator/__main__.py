@@ -42,8 +42,8 @@ def main(argv):
     match argv:
         case ["migrate"]:
             db.migrate()
-        case ["tenant-add", name, admin]:
-            print(db.create_tenant(name, admin))
+        case ["tenant-add", name, admin_user]:
+            print(db.create_tenant(name, admin_user))
         case ["user-add", tenant_id, name, role]:
             with db.tenant(tenant_id) as conn:
                 conn.execute("INSERT INTO users (tenant_id, name, role) "

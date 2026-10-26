@@ -95,7 +95,9 @@ def list_playbooks(folder):
             plays = yaml.safe_load(path.read_text())
             first = plays[0] if isinstance(plays, list) and plays and isinstance(plays[0], dict) else {}
             out.append({"name": path.stem, "description": str(first.get("name", ""))[:300],
-                        "rollback": path.with_name(path.stem + ".rollback.yml").is_file()})
+                        "rollback": path.with_name(path.stem + ".rollback.yml").is_file(),
+                        # a playbook reads its values as orch.NAME (see playbook_job): the names the model must pass
+                        "vars": sorted(set(re.findall(r"\borch\.([A-Za-z_][A-Za-z0-9_]*)", path.read_text())))})
     return out
 
 

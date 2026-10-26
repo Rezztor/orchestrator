@@ -5,7 +5,7 @@ import ssl
 import urllib.error
 import urllib.request
 
-from orchestrator.plugins import Refused, known_devices
+from orchestrator.plugins import Refused, known_devices, setting
 
 # The query is fixed here; the model only supplies device names, which go in as parameters, never into the text.
 FIELDS = ("Caption, IPAddress, Status, StatusDescription, ResponseTime, CPULoad, PercentMemoryUsed, LastBoot, "
@@ -16,10 +16,10 @@ FIELDS = ("Caption, IPAddress, Status, StatusDescription, ResponseTime, CPULoad,
 
 def query(swql, parameters):
     req = urllib.request.Request(
-        os.environ["ORCH_SOLARWINDS_URL"].rstrip("/") + "/SolarWinds/InformationService/v3/Json/Query",
+        setting("ORCH_SOLARWINDS_URL").rstrip("/") + "/SolarWinds/InformationService/v3/Json/Query",
         data=json.dumps({"query": swql, "parameters": parameters}).encode(),
         headers={"Content-Type": "application/json", "Authorization": "Basic " + base64.b64encode(
-            f"{os.environ['ORCH_SOLARWINDS_USER']}:{os.environ['ORCH_SOLARWINDS_PASSWORD']}".encode()).decode()})
+            f"{setting('ORCH_SOLARWINDS_USER')}:{setting('ORCH_SOLARWINDS_PASSWORD')}".encode()).decode()})
     ctx = ssl.create_default_context(cafile=os.environ.get("ORCH_SOLARWINDS_CA"))
     try:
         with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
