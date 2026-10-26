@@ -774,6 +774,13 @@ async function integrations() {
   const recipe = h("select", { required: true }, lib.recipes.map((r) => h("option", { value: r.name }, r.name)));
   const runAs = h("select", { required: true }, people.map((p) => h("option", { value: p.name, selected: p.name === me.user }, `${p.name} (${p.role})`)));
   const address = h("div", { class: "field", hidden: true });
+  const triggerList = h("div", {});
+  const listTriggers = (triggers) => triggerList.replaceChildren(triggers.length
+    ? h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {}, ["Recipe", "Runs as", "Made by", "Made", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, triggers.map((t) => h("tr", {}, h("td", {}, t.recipe), h("td", {}, t.run_as), h("td", {}, t.created_by), h("td", {}, stamp(t.created_at)),
+        h("td", {}, sure("Revoke", "Press again to revoke", () => api("/api/triggers/remove", { id: t.id }), "Trigger revoked: its address no longer works.")))))))
+    : h("p", {}, "No triggers yet."));
+  listTriggers(c.triggers);
   return h("div", { class: "talk" },
     head("Integrations", "What this organisation is connected to. Secrets are never shown here, only whether one is set."),
     h("div", { class: "cards" },
@@ -797,9 +804,7 @@ async function integrations() {
       } }, h("div", { class: "row" }, field("Kind", kind), field("Address", url), h("button", { type: "submit" }, "Add webhook")))),
     h("section", { class: "card" }, h("h2", {}, "Triggers"),
       h("p", { class: "muted" }, "Another system (an alert, a ticket) starts a recipe by sending JSON to a secret address. The recipe runs as the person named, under their role."),
-      c.triggers.length ? h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {}, ["Recipe", "Runs as", "Made by", "Made", ""].map((t) => h("th", {}, t)))),
-        h("tbody", {}, c.triggers.map((t) => h("tr", {}, h("td", {}, t.recipe), h("td", {}, t.run_as), h("td", {}, t.created_by), h("td", {}, stamp(t.created_at)),
-          h("td", {}, sure("Revoke", "Press again to revoke", () => api("/api/triggers/remove", { id: t.id }), "Trigger revoked: its address no longer works."))))))) : h("p", {}, "No triggers yet."),
+      triggerList,
       lib.recipes.length ? h("form", { onsubmit: async (e) => {
         e.preventDefault();
         const res = await act(e.submitter, () => api("/api/triggers/add", { recipe: recipe.value, run_as: runAs.value }), false);
@@ -811,6 +816,8 @@ async function integrations() {
             try { await navigator.clipboard.writeText(res.address); ev.currentTarget.textContent = "Copied"; } catch { say("Select the address and copy it yourself.", true); }
           } }, "Copy")));
         address.hidden = false;
+        // the screen is not drawn again (that would lose the address), so only the list is
+        listTriggers((await api("/api/connections")).triggers);
       } }, h("div", { class: "row" }, field("Recipe", recipe), field("Runs as", runAs), h("button", { type: "submit" }, "New trigger")), address)
         : h("p", { class: "muted" }, "Add a recipe first.")),
     h("p", { class: "muted" }, `Last ledger anchor: ${ago(c.last_anchor_at)}.`));
