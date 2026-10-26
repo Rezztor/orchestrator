@@ -87,6 +87,9 @@ def test_policy_set_from_the_command_line(site, tmp_path):
     done = subprocess.run([sys.executable, "-m", "orchestrator", "policy-set", str(_tenant()), str(path)],
                           capture_output=True, text=True)
     assert done.returncode == 1 and done.stderr.startswith("error: the policy is not valid YAML")
+    done = subprocess.run([sys.executable, "-m", "orchestrator", "device-add", "00000000-0000-0000-0000-000000000000",
+                           "sw9", "10.0.0.9", "ios"], capture_output=True, text=True)
+    assert done.returncode == 1 and done.stderr == "error: no organisation has that id (tenant-add prints it)\n"
 
 
 def _tenant():
