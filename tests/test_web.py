@@ -108,6 +108,7 @@ def test_unexpected_errors_answer_500_and_bad_lengths_are_refused(site):
     _, token, _ = sign_in(site)
     status, body, headers = call(site, "/api/audit?before=99999999999999999999", cookie=token)  # past bigint
     assert status == 500 and "server log" in body["error"] and headers["Strict-Transport-Security"]
+    assert headers["Server"] == "Rezztor-Orchestrator"
     req = urllib.request.Request(site + "/api/ask", data=b"{}", headers={
         "Content-Type": "application/json", "Content-Length": "two", "Cookie": f"orch_session={token}"})
     with pytest.raises(urllib.error.HTTPError) as refused:

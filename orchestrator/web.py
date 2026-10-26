@@ -45,6 +45,9 @@ HEADERS = {"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none
 class Handler(BaseHTTPRequestHandler):
     timeout = 60  # seconds a connection may sit idle: a client that sends slowly cannot hold a thread for ever
 
+    def version_string(self):  # the Server header, without the Python version
+        return "Rezztor-Orchestrator"
+
     def send(self, code, body, ctype="application/json", cookie=None, headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)

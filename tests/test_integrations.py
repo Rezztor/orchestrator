@@ -231,6 +231,8 @@ def test_change_events_reach_every_webhook_with_a_link(acme, fake, monkeypatch):
     monkeypatch.setattr(notify, "send", wait_for(notify.send))
     with pytest.raises(ValueError):
         notify.add(acme, "cli", "teams", "http://plain-http.example.com")
+    with pytest.raises(ValueError):
+        notify.add(acme, "cli", "teams", "https://")  # no host: every notification would fail
     for kind in notify.KINDS:
         notify.add(acme, "cli", kind, fake.url.replace("http://", "https://"))
     with db.tenant(acme) as conn:  # the fake speaks plain HTTP; the stored address must still say https

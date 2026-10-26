@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import threading
+import urllib.parse
 import urllib.request
 
 from . import db
@@ -15,7 +16,7 @@ KINDS = ("teams", "slack", "json")
 
 
 def add(tenant_id, actor, kind, url):
-    if kind not in KINDS or not url.startswith("https://"):
+    if kind not in KINDS or not url.startswith("https://") or not urllib.parse.urlsplit(url).hostname:
         raise ValueError(f"a webhook is one of {', '.join(KINDS)} with an https:// address")
     with db.tenant(tenant_id) as conn:
         conn.execute("INSERT INTO webhooks (tenant_id, kind, url) VALUES (current_setting('app.tenant_id')::uuid, "
