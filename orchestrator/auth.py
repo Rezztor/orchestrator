@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import secrets
 import struct
+import threading
 import time
 from urllib.parse import quote
 
@@ -17,11 +18,19 @@ SESSION_HOURS = 8
 SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
 MAX_FAILURES, LOCKOUT_SECONDS = 5, 300
 MFA_ROLES = ("approver", "tenant-admin")
+# Each scrypt holds 16 MiB: without a cap, a flood of sign-ins under made-up names (each its own lockout key) could
+# exhaust memory. Callers wait for a slot instead.
+SCRYPT_SLOTS = threading.BoundedSemaphore(4)
+
+
+def scrypt(password, salt):
+    with SCRYPT_SLOTS:
+        return hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
 
 
 def hash_password(password):
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
+    digest = scrypt(password, salt)
     return f"scrypt${salt.hex()}${digest.hex()}"
 
 
@@ -30,7 +39,7 @@ def check_password(password, stored):
         hash_password(password)  # same work as a real check, so timing does not reveal who has a password
         return False
     _, salt, digest = stored.split("$")
-    return hmac.compare_digest(hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT).hex(), digest)
+    return hmac.compare_digest(scrypt(password, bytes.fromhex(salt)).hex(), digest)
 
 
 def set_password(tenant_id, user_name, password):
@@ -51,11 +60,9 @@ def token_hash(token):
 def sign_in(tenant_name, user_name, password):
     """Return (tenant_id, session token), or None. Every attempt on a real tenant is audited."""
     key = (tenant_name, user_name)
+    if locked(key):
+        return None
     with db.app() as conn:
-        if conn.execute("SELECT 1 FROM sign_in_failures WHERE tenant_name = %s AND user_name = %s AND failures >= %s "
-                        "AND last_at > now() - make_interval(secs => %s)", (*key, MAX_FAILURES, LOCKOUT_SECONDS)
-                        ).fetchone():
-            return None
         tenant_id = conn.execute("SELECT tenant_id_by_name(%s) AS id", (tenant_name,)).fetchone()["id"]
     if tenant_id is None:
         check_password(password, None)
@@ -109,6 +116,8 @@ def check_code(token, code):
     if not me or me["mfa_ok"] or not (isinstance(code, str) and code.isdigit() and len(code) == 6):
         return False
     key = (str(me["tenant_id"]), me["user"])
+    if locked(key):  # else signing in again would give a password holder another round of guesses at the code
+        return False
     now = int(time.time()) // 30
     with db.tenant(me["tenant_id"]) as conn:
         user = conn.execute("SELECT totp_secret, totp_pending, totp_last_step FROM users WHERE name = %s FOR UPDATE",
@@ -145,6 +154,14 @@ def reset_mfa(tenant_id, user_name, actor="cli"):
             raise LookupError(f"no user {user_name!r}")
         conn.execute("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE name = %s)", (user_name,))
         db.audit(conn, actor, "auth.mfa_reset", {"user": user_name})
+
+
+def locked(key):
+    """True while (tenant, user) has MAX_FAILURES wrong passwords or codes within LOCKOUT_SECONDS."""
+    with db.app() as conn:
+        return conn.execute("SELECT 1 FROM sign_in_failures WHERE tenant_name = %s AND user_name = %s AND failures >= %s "
+                            "AND last_at > now() - make_interval(secs => %s)", (*key, MAX_FAILURES, LOCKOUT_SECONDS)
+                            ).fetchone() is not None
 
 
 def _failed(key):

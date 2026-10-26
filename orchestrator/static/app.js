@@ -295,7 +295,7 @@ const NAV = [
 function shell() {
   const nav = h("nav", { "aria-label": "Screens" }, NAV.map(([group, items]) => {
     const shown = items.filter(([, , roles]) => !roles || roles.includes(me.role));
-    return shown.length && h("div", { class: "group" }, h("span", {}, group), shown.map(([id, label]) =>
+    return shown.length > 0 && h("div", { class: "group" }, h("span", {}, group), shown.map(([id, label]) =>
       h("a", { href: `#/${id}`, "data-screen": id }, label, id === "changes" && h("span", { class: "badge", id: "badge", hidden: true }))));
   }));
   const org = store.get("orch.org");

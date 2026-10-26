@@ -95,6 +95,25 @@ def test_approvers_and_admins_need_an_authenticator_code(site):
         call(site, "/api/mfa", {"code": "123456"}, cookie=again)
     assert call(site, "/api/me", cookie=again)[0] == 401  # too many wrong codes end the session
 
+    # signing in again does not buy more guesses: while locked, even the right code is refused
+    _, third, _ = sign_in(site, mfa=False)
+    with db.app() as conn:
+        acme = conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
+    with db.tenant(acme) as conn:
+        conn.execute("UPDATE users SET totp_last_step = 0 WHERE name = 'alice'")
+    assert call(site, "/api/mfa", {"code": auth.totp(step["secret"], int(time.time()) // 30)}, cookie=third)[0] == 401
+
+
+def test_unexpected_errors_answer_500_and_bad_lengths_are_refused(site):
+    _, token, _ = sign_in(site)
+    status, body, headers = call(site, "/api/audit?before=99999999999999999999", cookie=token)  # past bigint
+    assert status == 500 and "server log" in body["error"] and headers["Strict-Transport-Security"]
+    req = urllib.request.Request(site + "/api/ask", data=b"{}", headers={
+        "Content-Type": "application/json", "Content-Length": "two", "Cookie": f"orch_session={token}"})
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        urllib.request.urlopen(req)
+    assert refused.value.code == 413
+
 
 def test_requests_that_are_not_json_or_not_signed_in_are_refused(site):
     assert call(site, "/api/sign-in", {"tenant": "acme"}, ctype="text/plain")[0] == 415

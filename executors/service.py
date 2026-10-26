@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 class JobHandler(BaseHTTPRequestHandler):
     token = None
+    timeout = 60  # seconds a connection may sit idle before a job arrives; a running job is not cut short
 
     def handle_job(self, body):
         raise NotImplementedError
@@ -30,7 +31,8 @@ class JobHandler(BaseHTTPRequestHandler):
             return self.reply(404, {"error": "not found"})
         if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), f"Bearer {self.token}".encode()):
             return self.reply(401, {"error": "bad job token"})
-        length = int(self.headers.get("Content-Length") or 0)
+        length = self.headers.get("Content-Length", "")
+        length = int(length) if length.isascii() and length.isdigit() else 0
         if not 0 < length <= 65536:
             return self.reply(413, {"error": "body must be 1 byte to 64 KiB"})
         try:
