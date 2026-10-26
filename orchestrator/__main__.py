@@ -129,4 +129,8 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (ValueError, LookupError, PermissionError, plugins.Refused, psycopg.Error) as exc:  # a mistake, not a bug
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)

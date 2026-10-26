@@ -168,7 +168,7 @@ def delegate(ctx, agent, task):
 
 
 def run_tool(ctx, call):
-    name, request = call["function"]["name"], str(ctx["request_id"])
+    name, request, args = call["function"]["name"], str(ctx["request_id"]), None
     try:
         args = json.loads(call["function"].get("arguments") or "{}")
         cap = plugins.find(ctx["caps"], name)
@@ -189,7 +189,8 @@ def run_tool(ctx, call):
     except (plugins.Refused, json.JSONDecodeError) as exc:
         with db.tenant(ctx["tenant_id"]) as conn:
             db.audit(conn, "policy", "tool.refused", {"request": request, "agent": ctx["agent"], "tool": name,
-                                                      "reason": str(exc)})
+                                                      "reason": str(exc),
+                                                      **({"args": guard.redact(args)} if isinstance(args, dict) else {})})
         return json.dumps({"refused": str(exc)})
     hits = guard.instructions_in(result)
     with db.tenant(ctx["tenant_id"]) as conn:

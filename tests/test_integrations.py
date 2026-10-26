@@ -138,6 +138,19 @@ def test_a_connection_that_is_not_configured_is_refused_not_a_crash(acme, monkey
     chat = scripted(tool_call("solarwinds__nodes__status", {"devices": ["sw1"]}), {"content": "not connected"})
     assert loop.run(acme, "oscar", "is sw1 up?", chat=chat)[1] == "DONE"
     assert "ORCH_SOLARWINDS_URL is not set" in json.loads(chat.seen[1][-1]["content"])["refused"]
+    with db.tenant(acme) as conn:
+        row = conn.execute("SELECT data FROM audit WHERE kind = 'tool.refused'").fetchone()
+    assert row["data"]["args"] == {"devices": ["sw1"]}  # the ledger keeps what was tried
+
+    with socket.socket() as s:  # a port nothing listens on
+        s.bind(("127.0.0.1", 0))
+        closed = s.getsockname()[1]
+    monkeypatch.setenv("ORCH_SOLARWINDS_URL", f"http://127.0.0.1:{closed}")
+    monkeypatch.setenv("ORCH_SOLARWINDS_USER", "orch-read")
+    monkeypatch.setenv("ORCH_SOLARWINDS_PASSWORD", "pw")
+    chat = scripted(tool_call("solarwinds__nodes__status", {"devices": ["sw1"]}), {"content": "unreachable"})
+    assert loop.run(acme, "oscar", "is sw1 up?", chat=chat)[1] == "DONE"
+    assert "could not be reached" in json.loads(chat.seen[1][-1]["content"])["refused"]
 
 
 def test_solarwinds_status_uses_parameters_and_only_the_tenants_devices(acme, fake, monkeypatch):
