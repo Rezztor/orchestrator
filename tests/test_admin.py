@@ -92,6 +92,16 @@ def test_policy_set_from_the_command_line(site, tmp_path):
     assert done.returncode == 1 and done.stderr == "error: no organisation has that id (tenant-add prints it)\n"
 
 
+def test_policy_show_and_device_critical_from_the_command_line(site, tmp_path, capsys):
+    path = tmp_path / "policy.yaml"
+    path.write_text('freeze: [{start: "2026-12-20T00:00", end: "2027-01-05T00:00", reason: Year end}]\n')
+    main(["policy-set", str(_tenant()), str(path)])
+    assert main(["policy-show", str(_tenant())]) == 0
+    assert '"2026-12-20 00:00:00+00:00"' in capsys.readouterr().out
+    assert main(["device-critical", str(_tenant()), "no-such-sw", "yes"]) == 1
+    assert capsys.readouterr().err == "error: no device 'no-such-sw'\n"
+
+
 def _tenant():
     with db.app() as conn:
         return conn.execute("SELECT tenant_id_by_name('acme') AS id").fetchone()["id"]
