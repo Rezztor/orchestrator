@@ -132,5 +132,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
     except (ValueError, LookupError, PermissionError, plugins.Refused, psycopg.Error) as exc:  # a mistake, not a bug
-        print(f"error: {exc}", file=sys.stderr)
+        unknown = isinstance(exc, psycopg.errors.ForeignKeyViolation) and "tenant" in (exc.diag.constraint_name or "")
+        print("error: no organisation has that id (tenant-add prints it)" if unknown else f"error: {exc}",
+              file=sys.stderr)
         sys.exit(1)
