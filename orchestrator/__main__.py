@@ -61,7 +61,7 @@ def main(argv):
             with db.tenant(tenant_id) as conn:
                 if not conn.execute("UPDATE devices SET critical = %s WHERE name = %s",
                                     (critical == "yes", name)).rowcount:
-                    print(f"no device {name!r}", file=sys.stderr)
+                    print(f"error: no device {name!r}", file=sys.stderr)
                     return 1
                 db.audit(conn, "cli", "device.critical", {"device": name, "critical": critical == "yes"})
         case ["ask", tenant_id, user, prompt]:
@@ -91,7 +91,7 @@ def main(argv):
                 admin.set_policy(conn, "cli", open(path).read())
         case ["policy-show", tenant_id]:
             with db.tenant(tenant_id) as conn:
-                print(json.dumps(policy.for_tenant(conn), indent=2))
+                print(json.dumps(policy.for_tenant(conn), indent=2, default=str))  # a freeze's dates are datetimes
         case ["stop", tenant_id, reason]:
             loop.set_kill_switch(tenant_id, "cli", reason)
         case ["resume", tenant_id]:

@@ -47,7 +47,7 @@
   never: [ansible.playbook.run, ansible.playbooks.list, cloud.module.apply]
 
 - name: cloud-change-is-proposed
-  prompt: Create the resource group for project alpha in the dev environment.
+  prompt: Create the resource group rg-alpha-dev in westeurope for project alpha, in the dev environment.
   results:
     cloud.modules.list: [{name: azure-resource-group, description: "An Azure resource group: vars name, location"}]
   expect: [cloud.modules.list, cloud.module.apply]
