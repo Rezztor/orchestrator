@@ -38,10 +38,13 @@ READS = {
 COOKIE = "orch_session"
 ROUTE = re.compile(r"/api/(requests|changes/evidence)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 HEADERS = {"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; form-action 'self'",
-           "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
+           "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
+           "Strict-Transport-Security": "max-age=31536000"}  # browsers ignore it over plain http (localhost)
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 60  # seconds a connection may sit idle: a client that sends slowly cannot hold a thread for ever
+
     def send(self, code, body, ctype="application/json", cookie=None, headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)
@@ -97,6 +100,20 @@ class Handler(BaseHTTPRequestHandler):
                              "text/plain; charset=utf-8")
 
     def do_GET(self):
+        self.safely(self.get)
+
+    def do_POST(self):
+        self.safely(self.post)
+
+    def safely(self, work):
+        """Answer 500 to anything unexpected, with the reason in the log, rather than dropping the connection."""
+        try:
+            work()
+        except Exception:
+            self.log_error("request failed: %r", traceback.format_exc())
+            self.send(500, {"error": "something went wrong; the reason is in the server log"})
+
+    def get(self):
         url = urlsplit(self.path)
         if url.path in ("/oidc/start", "/oidc/callback"):
             return self.directory_sign_in(url)
@@ -157,11 +174,12 @@ class Handler(BaseHTTPRequestHandler):
                                        "shipped_skills": sorted(skills.shipped())})
         self.send(404, {"error": "not found"})
 
-    def do_POST(self):
+    def post(self):
         # JSON only: a cross-site form cannot send it without a preflight, and the cookie is SameSite=Strict.
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.send(415, {"error": "send JSON"})
-        length = int(self.headers.get("Content-Length") or 0)
+        length = self.headers.get("Content-Length", "")
+        length = int(length) if length.isascii() and length.isdigit() else 0
         if not 0 < length <= 32768:
             return self.send(413, {"error": "body must be 1 byte to 32 KiB"})
         try:
