@@ -246,7 +246,7 @@ def listing(conn, change_id=None):
     """The tenant's 50 latest changes (or the one named), as the page shows them."""
     rows = conn.execute(
         "SELECT c.id, c.capability, c.args, c.plan, c.digest, c.risk, c.approvals_needed, c.review, c.change_record, "
-        "c.break_glass, "
+        "c.break_glass, c.request_id, "
         "c.result, c.created_at, c.expires_at, u.name AS requested_by, CASE WHEN c.state IN ('PLANNED', 'APPROVED') "
         "AND c.expires_at <= now() THEN 'EXPIRED' ELSE c.state END AS state, "
         "coalesce((SELECT json_agg(json_build_object('user', d.name, 'decision', a.decision, 'reason', a.reason) "

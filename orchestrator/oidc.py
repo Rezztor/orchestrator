@@ -49,8 +49,8 @@ def fetch(url, form=None):
 
 def directory(issuer):
     """The issuer's discovery document and signing keys, kept for an hour."""
-    at, doc, keys = _config.get(issuer, (0, None, None))
-    if time.monotonic() - at > 3600:
+    at, doc, keys = _config.get(issuer, (None, None, None))
+    if at is None or time.monotonic() - at > 3600:  # monotonic time starts near 0 at boot: never compare with 0
         doc = fetch(issuer.rstrip("/") + "/.well-known/openid-configuration")
         if doc.get("issuer") != issuer:
             raise PermissionError("the directory's discovery document names another issuer")

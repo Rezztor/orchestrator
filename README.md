@@ -33,6 +33,14 @@ work from the page or with `stop`; `stop-all` stops the whole installation.
 The session cookie is `Secure`: browsers accept it on `localhost`; anywhere else serve HTTPS (`ORCH_WEB_CERT` and
 `ORCH_WEB_KEY`, or TLS in front).
 
+The page (`orchestrator/static/`, plain JavaScript, no build step, nothing loaded from elsewhere) has Overview, Ask,
+Changes, Activity (the ledger, approvers and administrators), Recipes, Devices and Skills, and for a tenant
+administrator People and policy and Integrations: add people and set roles (a role change signs the person out), reset
+an authenticator, add devices and mark them critical, edit the tenant's policy, add or remove webhooks and triggers,
+and stop or resume agent work. Settings that name a server secret (`route-set`, `oidc-set`) and installation-wide
+ones stay on the command line with the installation's owner: a tenant administrator who could set them could point a
+secret at a server of their own.
+
 Phase 3 change path: the agent can only propose. A change capability's dry run (Ansible check mode with diffs)
 becomes a PLANNED change with a digest; its risk is the manifest's, one class higher without a rollback playbook and
 one higher for a critical device (`device-critical`). People approve that digest on the page (`approver` or

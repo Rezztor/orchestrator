@@ -35,7 +35,7 @@ import sys
 
 import psycopg
 
-from . import anchors, auth, db, evals, loop, oidc, plugins, notify, policy, recipes, siem, skills
+from . import admin, anchors, auth, db, evals, loop, oidc, plugins, notify, policy, recipes, siem, skills
 
 
 def main(argv):
@@ -87,13 +87,8 @@ def main(argv):
         case ["mfa-reset", tenant_id, user]:
             auth.reset_mfa(tenant_id, user)
         case ["policy-set", tenant_id, path]:
-            text = open(path).read()
-            policy.parse(text)
             with db.tenant(tenant_id) as conn:
-                conn.execute("INSERT INTO policies (tenant_id, document, set_by) "
-                             "VALUES (current_setting('app.tenant_id')::uuid, %s, 'cli') ON CONFLICT (tenant_id) "
-                             "DO UPDATE SET document = EXCLUDED.document, set_by = 'cli', set_at = now()", (text,))
-                db.audit(conn, "cli", "policy.set", {"digest": db.digest(text)})
+                admin.set_policy(conn, "cli", open(path).read())
         case ["policy-show", tenant_id]:
             with db.tenant(tenant_id) as conn:
                 print(json.dumps(policy.for_tenant(conn), indent=2))

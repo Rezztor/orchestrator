@@ -19,10 +19,22 @@ from urllib.parse import parse_qsl, urlsplit
 
 import psycopg
 
-from . import auth, changes, db, loop, oidc, plugins, policy, recipes, reports, skills
+from . import admin, auth, changes, db, loop, notify, oidc, plugins, policy, recipes, reports, skills
 
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
           "/app.css": ("app.css", "text/css")}
+# GET pages of data: path -> (roles that may read it or None for everyone signed in, reader(conn, me, query))
+READS = {
+    "/api/requests": (None, lambda conn, me, q: {"requests": admin.history(conn, me)}),
+    "/api/overview": (None, lambda conn, me, q: admin.overview(conn)),
+    "/api/devices": (None, lambda conn, me, q: {"devices": admin.devices(conn)}),
+    "/api/policy": (None, lambda conn, me, q: admin.policy_view(conn)),
+    "/api/audit": (changes.APPROVER_ROLES, lambda conn, me, q: admin.ledger_page(
+        conn, int(q["before"]) if q.get("before", "").isdigit() else None,
+        q.get("kind") or None, q.get("actor") or None, q.get("ref") or None)),
+    "/api/people": (("tenant-admin",), lambda conn, me, q: admin.people(conn)),
+    "/api/connections": (("tenant-admin",), lambda conn, me, q: admin.connections(conn, me["tenant_id"])),
+}
 COOKIE = "orch_session"
 ROUTE = re.compile(r"/api/(requests|changes/evidence)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 HEADERS = {"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; form-action 'self'",
@@ -127,6 +139,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(403, {"error": str(exc)})
             except LookupError as exc:
                 return self.send(404, {"error": str(exc)})
+        if url.path in READS:
+            roles, read = READS[url.path]
+            me = self.me()
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            if roles and me["role"] not in roles:
+                return self.send(403, {"error": "your role cannot see this page"})
+            with db.tenant(me["tenant_id"]) as conn:
+                return self.send(200, read(conn, me, dict(parse_qsl(url.query))))
         if self.path == "/api/library":
             me = self.me()
             if not me:
@@ -197,6 +218,20 @@ class Handler(BaseHTTPRequestHandler):
                                  reason.strip()[:500] if body.get("stop") is True else None)
             with db.tenant(me["tenant_id"]) as conn:
                 return self.send(200, {"stopped": policy.stopped(conn)})
+        if self.path.startswith(("/api/people/", "/api/devices/", "/api/policy/", "/api/webhooks/", "/api/triggers/")):
+            me = self.me()
+            if not me:
+                return self.send(401, {"error": "sign in"})
+            if me["role"] != "tenant-admin":
+                return self.send(403, {"error": "only a tenant administrator can change this"})
+            try:
+                return self.send(200, self.administer(me, body) or {"ok": True})
+            except PermissionError as exc:
+                return self.send(403, {"error": str(exc)})
+            except LookupError as exc:
+                return self.send(404, {"error": str(exc)})
+            except (ValueError, TypeError) as exc:
+                return self.send(400, {"error": str(exc)})
         if self.path in ("/api/skills/decide", "/api/recipes/run"):
             me = self.me()
             if not me:
@@ -261,6 +296,38 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self.send(400, {"error": str(exc)})
         self.send(404, {"error": "not found"})
+
+    def administer(self, me, body):
+        """A tenant administrator's change from the People, Devices, Policy or Integrations screens."""
+        tenant, actor, path = me["tenant_id"], me["user"], self.path
+        text = lambda key: body.get(key) if isinstance(body.get(key), str) else ""  # noqa: E731
+        if path == "/api/people/add":
+            password = body.get("password") or None
+            return admin.add_person(tenant, actor, text("name").strip(), text("role"),
+                                    password if isinstance(password, str) else None)
+        if path == "/api/people/role":
+            return admin.set_role(tenant, actor, text("name"), text("role"))
+        if path == "/api/people/mfa-reset":
+            return auth.reset_mfa(tenant, text("name"), actor)
+        if path == "/api/webhooks/add":
+            return notify.add(tenant, actor, text("kind"), text("url").strip())
+        if path == "/api/triggers/add":
+            address = recipes.add_trigger(tenant, actor, text("recipe"), text("run_as"))
+            return {"address": os.environ.get("ORCH_PUBLIC_URL", "").rstrip("/") + address}
+        with db.tenant(tenant) as conn:
+            if path == "/api/devices/add":
+                return admin.add_device(conn, actor, text("name"), text("address"), text("platform"), text("site"))
+            if path == "/api/devices/critical":
+                if not isinstance(body.get("critical"), bool):
+                    raise ValueError("critical is true or false")
+                return admin.set_critical(conn, actor, text("name"), body["critical"])
+            if path == "/api/policy/set":
+                return admin.set_policy(conn, actor, text("document"))
+            if path == "/api/webhooks/remove":
+                return admin.remove_webhook(conn, actor, uuid.UUID(text("id")))
+            if path == "/api/triggers/remove":
+                return admin.remove_trigger(conn, actor, text("id"))
+        raise LookupError("no such setting")
 
 
 def serve():
