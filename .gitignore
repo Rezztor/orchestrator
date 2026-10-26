@@ -10,3 +10,5 @@ deploy/secrets.env
 deploy/mcp/
 deploy/keys/
 deploy/tofu-modules/
+uat/browser/shots/
+node_modules/
