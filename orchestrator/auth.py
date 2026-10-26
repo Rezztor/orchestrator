@@ -137,14 +137,14 @@ def check_code(token, code):
     return True
 
 
-def reset_mfa(tenant_id, user_name):
+def reset_mfa(tenant_id, user_name, actor="cli"):
     """Forget a user's authenticator (lost phone): the next sign-in enrols a new one."""
     with db.tenant(tenant_id) as conn:
         if conn.execute("UPDATE users SET totp_secret = NULL, totp_pending = NULL WHERE name = %s",
                         (user_name,)).rowcount != 1:
             raise LookupError(f"no user {user_name!r}")
         conn.execute("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE name = %s)", (user_name,))
-        db.audit(conn, "cli", "auth.mfa_reset", {"user": user_name})
+        db.audit(conn, actor, "auth.mfa_reset", {"user": user_name})
 
 
 def _failed(key):
