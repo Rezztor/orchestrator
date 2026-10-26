@@ -1,4 +1,7 @@
 """The screens' data and a tenant administrator's changes from the page."""
+import subprocess
+import sys
+
 from orchestrator import db, model, recipes
 from orchestrator.__main__ import main
 from tests.test_core import scripted, tool_call
@@ -80,6 +83,10 @@ def test_policy_set_from_the_command_line(site, tmp_path):
     main(["policy-set", str(_tenant()), str(path)])
     with db.tenant(_tenant()) as conn:
         assert conn.execute("SELECT set_by FROM policies").fetchone()["set_by"] == "cli"
+    path.write_text("approvals: [high\n")
+    done = subprocess.run([sys.executable, "-m", "orchestrator", "policy-set", str(_tenant()), str(path)],
+                          capture_output=True, text=True)
+    assert done.returncode == 1 and done.stderr.startswith("error: the policy is not valid YAML")
 
 
 def _tenant():

@@ -26,6 +26,8 @@ def query(swql, parameters):
             return json.load(resp)["results"]
     except urllib.error.HTTPError as exc:
         raise Refused(f"SolarWinds answered {exc.code}: {exc.read()[:300].decode(errors='replace')}")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise Refused(f"SolarWinds could not be reached ({getattr(exc, 'reason', exc)})")
 
 
 def node_status(conn, devices):

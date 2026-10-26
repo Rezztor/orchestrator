@@ -126,6 +126,8 @@ def post_job(prefix, body, timeout):
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         raise Refused(f"executor answered {exc.code}: {exc.read()[:300].decode(errors='replace')}")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise Refused(f"the executor could not be reached ({getattr(exc, 'reason', exc)})")
 
 
 def known_devices(conn, devices, most=50):
