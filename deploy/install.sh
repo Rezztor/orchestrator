@@ -9,6 +9,9 @@
 # the questions: ORCH_MODEL_URL (any OpenAI-compatible endpoint ending in /v1), ORCH_MODEL, ORCH_MODEL_KEY,
 # ORCH_ORG (default acme), ORCH_ADMIN (default admin), ORCH_HTTPS_PORT (default 443), ORCH_VERSION.
 set -euo pipefail
+# All in main, run on the last line: under curl | bash this script is bash's stdin, so bash must read all of it
+# before a command (docker compose run keeps stdin open) can swallow the rest, and a cut-off download runs nothing.
+main() {
 version=${ORCH_VERSION:-0.7.0}
 dir=${ORCH_DIR:-$PWD/rezztor-orchestrator}
 port=${ORCH_HTTPS_PORT:-443}
@@ -24,7 +27,7 @@ docker compose version >/dev/null 2>&1 || { echo "error: the docker compose plug
     "docker compose pull && docker compose up -d)" >&2; exit 1; }
 
 ask() {  # ask NAME QUESTION: keep $NAME if set, else read it from the terminal (stdin is this script under curl | bash)
-    if [[ -z ${!1:-} && -r /dev/tty ]]; then read -rp "$2" "$1" </dev/tty || true; fi
+    if [[ -z ${!1:-} ]] && { : </dev/tty; } 2>/dev/null; then read -rp "$2" "$1" </dev/tty || true; fi
 }
 ask ORCH_MODEL_URL "Model endpoint, OpenAI-compatible, ending in /v1 (empty to set it later): "
 [[ -z ${ORCH_MODEL_URL:-} ]] || ask ORCH_MODEL "Model name: "
@@ -66,7 +69,7 @@ done
     echo "error: the web service did not become healthy" >&2; exit 1; }
 
 orch() { docker compose run --rm -T migrate python -m orchestrator "$@"; }
-tenant=$(orch tenant-add "$org" "$admin" | tail -n 1)
+tenant=$(orch tenant-add "$org" "$admin" </dev/null | tail -n 1)
 password=$(rand)
 printf '%s\n' "$password" | orch set-password "$tenant" "$admin" 2>/dev/null
 echo "$tenant" > tenant-id
@@ -85,3 +88,5 @@ Devices go in ansible/inventory and reviewed playbooks in ansible/playbooks/.
 $([[ -n ${ORCH_MODEL_URL:-} ]] || echo "No model yet: set ORCH_MODEL_URL and ORCH_MODEL in .env, then docker compose up -d.")
 Administration, from $dir: docker compose run --rm migrate python -m orchestrator COMMAND (README lists them)
 EOF
+}
+main "$@"

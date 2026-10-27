@@ -63,3 +63,9 @@ def test_installer_and_release_agree_on_the_version():
     released = [l.split("=", 1)[1] for l in (deploy / "env.example").read_text().splitlines()
                 if l.startswith("ORCH_VERSION=")]
     assert f"version=${{ORCH_VERSION:-{released[0]}}}" in (deploy / "install.sh").read_text()
+
+
+def test_installer_runs_only_once_fully_read():
+    """Under curl | bash a docker compose run would swallow the unread rest of the script."""
+    lines = (VERIFY.parent.parent / "deploy" / "install.sh").read_text().rstrip().splitlines()
+    assert lines[-1] == 'main "$@"' and "main() {" in lines
