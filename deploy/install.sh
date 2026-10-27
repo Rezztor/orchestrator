@@ -24,7 +24,7 @@ docker compose version >/dev/null 2>&1 || { echo "error: the docker compose plug
     "docker compose pull && docker compose up -d)" >&2; exit 1; }
 
 ask() {  # ask NAME QUESTION: keep $NAME if set, else read it from the terminal (stdin is this script under curl | bash)
-    if [[ -z ${!1:-} && -r /dev/tty ]]; then read -rp "$2" "$1" </dev/tty || true; fi
+    if [[ -z ${!1:-} ]] && { : </dev/tty; } 2>/dev/null; then read -rp "$2" "$1" </dev/tty || true; fi
 }
 ask ORCH_MODEL_URL "Model endpoint, OpenAI-compatible, ending in /v1 (empty to set it later): "
 [[ -z ${ORCH_MODEL_URL:-} ]] || ask ORCH_MODEL "Model name: "
