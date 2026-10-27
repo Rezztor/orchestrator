@@ -58,7 +58,7 @@ EOF
 # the containers run as their own user, so the certificate must be readable inside them; $dir itself stays 700
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 825 -subj "/CN=$host" \
     -addext "subjectAltName=DNS:$host,DNS:localhost,IP:127.0.0.1" -keyout certs/tls.key -out certs/tls.crt 2>/dev/null
-chmod 755 certs ansible ansible/playbooks && chmod 644 certs/tls.key certs/tls.crt ansible/inventory
+chmod 755 certs keys mcp tofu-modules ansible ansible/playbooks && chmod 644 certs/tls.key certs/tls.crt ansible/inventory
 
 docker compose up -d
 for _ in $(seq 60); do

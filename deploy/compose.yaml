@@ -56,11 +56,15 @@ services:
   migrate:  # the owner role: migrates on every start, and runs the administration commands
     image: ghcr.io/rezztor/orchestrator-core:${ORCH_VERSION}
     command: [python, -m, orchestrator, migrate]
-    environment:
+    environment:  # the whole app environment too, so ask, recipe-run and trigger-add work from here
+      <<: *app-env
       ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
       ORCH_DB_APP_PASSWORD: ${ORCH_DB_APP_PASSWORD}
-      ORCH_DB_APP_URL: postgresql://orch_app:${ORCH_DB_APP_PASSWORD}@postgres:5432/orch
-    networks: [back]
+      ORCH_ANCHOR_PUB: ${ORCH_ANCHOR_PUB:-}  # /keys/anchor.pub, for audit-verify
+    env_file: [{path: ./secrets.env, required: false}]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: [./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
+    networks: [back, out]
     depends_on:
       postgres: {condition: service_healthy}
 
