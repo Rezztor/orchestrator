@@ -55,3 +55,11 @@ def test_another_key_is_refused(release, tmp_path):
     openssl("genpkey", "-algorithm", "ed25519", "-out", str(other))
     openssl("pkey", "-in", str(other), "-pubout", "-out", str(tmp_path / "other.pub"))
     assert "BAD SIGNATURE" in verify(release[0], tmp_path / "other.pub").stderr
+
+
+def test_installer_and_release_agree_on_the_version():
+    """The manual release tags ORCH_VERSION from env.example; install.sh fetches compose.yaml from that tag."""
+    deploy = VERIFY.parent.parent / "deploy"
+    released = [l.split("=", 1)[1] for l in (deploy / "env.example").read_text().splitlines()
+                if l.startswith("ORCH_VERSION=")]
+    assert f"version=${{ORCH_VERSION:-{released[0]}}}" in (deploy / "install.sh").read_text()

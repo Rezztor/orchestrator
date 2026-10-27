@@ -1,10 +1,12 @@
-# A pushed tag vX.Y.Z: run the tests, then build the four images from that tag and publish them to
-# ghcr.io/rezztor/orchestrator-{core,ansible,tofu,postgres}:X.Y.Z and :latest, which deploy/install.sh pulls.
+# A pushed tag vX.Y.Z, or a manual run on main (it tags main with ORCH_VERSION from deploy/env.example): run the
+# tests, then build the four images and publish them to ghcr.io/rezztor/orchestrator-{core,ansible,tofu,postgres}
+# at X.Y.Z and :latest, which deploy/install.sh pulls. install.sh fetches compose.yaml from that tag.
 # shortcut: linux/amd64 only (the OpenTofu download is amd64); add a platform matrix when a customer needs arm64.
 name: release
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -15,15 +17,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write  # the manual run pushes its tag
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Tag a manual run
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          [ "$GITHUB_REF_NAME" = main ] || { echo "run it on main" >&2; exit 1; }
+          version=$(sed -n 's/^ORCH_VERSION=//p' deploy/env.example)
+          git tag "v$version" && git push origin "v$version"  # fails if that version was already released
+          echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Build and publish
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version=${GITHUB_REF_NAME#v}
+          version=${VERSION:-${GITHUB_REF_NAME#v}}
           echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           for target in core ansible tofu postgres; do
             image=ghcr.io/rezztor/orchestrator-$target
