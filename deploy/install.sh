@@ -12,7 +12,7 @@ set -euo pipefail
 # All in main, run on the last line: under curl | bash this script is bash's stdin, so bash must read all of it
 # before a command (docker compose run keeps stdin open) can swallow the rest, and a cut-off download runs nothing.
 main() {
-version=${ORCH_VERSION:-0.7.0}
+version=${ORCH_VERSION:-0.7.1}
 dir=${ORCH_DIR:-$PWD/rezztor-orchestrator}
 port=${ORCH_HTTPS_PORT:-443}
 org=${ORCH_ORG:-acme}

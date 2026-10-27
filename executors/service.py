@@ -43,15 +43,31 @@ class JobHandler(BaseHTTPRequestHandler):
             return self.reply(502, {"error": str(exc)})
 
 
+class Server(ThreadingHTTPServer):
+    """TLS, when `tls` holds a context, with each handshake in the connection's own thread under the handler's idle
+    timeout: a handshake inside accept() let one client that never spoke stall every other connection."""
+    tls = None
+
+    def finish_request(self, request, client_address):
+        if not self.tls:
+            return super().finish_request(request, client_address)
+        request.settimeout(self.RequestHandlerClass.timeout)
+        try:
+            with self.tls.wrap_socket(request, server_side=True) as conn:
+                super().finish_request(conn, client_address)
+        except OSError:  # a handshake that failed or never came
+            pass
+
+
 def serve(handler, prefix, default_listen):
     """Serve `handler` with PREFIX_TOKEN (32+ characters), PREFIX_LISTEN and optional PREFIX_CERT / PREFIX_KEY."""
     handler.token = os.environ[f"{prefix}_TOKEN"]
     if len(handler.token) < 32:
         raise SystemExit(f"{prefix}_TOKEN must be at least 32 characters")
     host, port = os.environ.get(f"{prefix}_LISTEN", default_listen).rsplit(":", 1)
-    server = ThreadingHTTPServer((host, int(port)), handler)
+    server = Server((host, int(port)), handler)
     if os.environ.get(f"{prefix}_CERT"):
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ctx.load_cert_chain(os.environ[f"{prefix}_CERT"], os.environ[f"{prefix}_KEY"])
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        server.tls = ctx
     server.serve_forever()
