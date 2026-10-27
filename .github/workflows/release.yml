@@ -1,0 +1,37 @@
+# A pushed tag vX.Y.Z: run the tests, then build the four images from that tag and publish them to
+# ghcr.io/rezztor/orchestrator-{core,ansible,tofu,postgres}:X.Y.Z and :latest, which deploy/install.sh pulls.
+# shortcut: linux/amd64 only (the OpenTofu download is amd64); add a platform matrix when a customer needs arm64.
+name: release
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+permissions:
+  contents: read
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+  images:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and publish
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for target in core ansible tofu postgres; do
+            image=ghcr.io/rezztor/orchestrator-$target
+            docker build --pull --target "$target" \
+              --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.version=$version" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              -t "$image:$version" -t "$image:latest" .
+            docker push "$image:$version"
+            docker push "$image:latest"
+          done

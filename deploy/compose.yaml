@@ -1,4 +1,5 @@
-# Rezztor Orchestrator on one host. Copy env.example to .env, fill it in, then:
+# Rezztor Orchestrator on one host. deploy/install.sh sets it up in one command; by hand, copy env.example to .env,
+# fill it in, then:
 #   docker compose up -d                       postgres, migrate, web, scheduler, Ansible executor
 #   docker compose --profile cloud up -d       ...and the OpenTofu executor
 #   docker compose --profile siem up -d        ...and the SIEM forwarder
@@ -7,12 +8,13 @@
 # shortcut: the executors speak plain HTTP with their token on the internal network; set ORCH_*_CERT/KEY and
 # ORCH_*_CA to encrypt it when the executors move to another host.
 x-core: &core
-  image: rezztor/orchestrator-core:${ORCH_VERSION}
+  image: ghcr.io/rezztor/orchestrator-core:${ORCH_VERSION}
   restart: unless-stopped
   # secrets that route-set and oidc-set name (a tenant's own executor token or model key, directory client secrets)
   env_file: [{path: ./secrets.env, required: false}]
   read_only: true
   tmpfs: [/tmp]
+  extra_hosts: ["host.docker.internal:host-gateway"]  # a model server on this host (Docker Desktop has it already)
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   depends_on:
@@ -38,7 +40,7 @@ x-app-env: &app-env
 
 services:
   postgres:
-    image: rezztor/orchestrator-postgres:${ORCH_VERSION}
+    image: ghcr.io/rezztor/orchestrator-postgres:${ORCH_VERSION}
     restart: unless-stopped
     environment:
       POSTGRES_DB: orch
@@ -52,7 +54,7 @@ services:
       retries: 20
 
   migrate:  # the owner role: migrates on every start, and runs the administration commands
-    image: rezztor/orchestrator-core:${ORCH_VERSION}
+    image: ghcr.io/rezztor/orchestrator-core:${ORCH_VERSION}
     command: [python, -m, orchestrator, migrate]
     environment:
       ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
@@ -95,7 +97,7 @@ services:
     networks: [back, out]
 
   ansible:  # holds the device credentials (in ./ansible/inventory); the core never sees them
-    image: rezztor/orchestrator-ansible:${ORCH_VERSION}
+    image: ghcr.io/rezztor/orchestrator-ansible:${ORCH_VERSION}
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -105,7 +107,7 @@ services:
     networks: [back, out]
 
   tofu:  # holds the cloud credentials (ARM_* in ./tofu.env); the core never sees them
-    image: rezztor/orchestrator-tofu:${ORCH_VERSION}
+    image: ghcr.io/rezztor/orchestrator-tofu:${ORCH_VERSION}
     profiles: [cloud]
     restart: unless-stopped
     cap_drop: [ALL]

@@ -8,7 +8,23 @@ Ansible facts and reviewed Ansible playbooks through our own executor), the poli
 path with approvals, skills, recipes and schedules, specialist sub-agents and a change reviewer, web sign-in, and the
 integrations below, then hardening: red-team and eval suites, running more than one copy, and a signed release.
 
-## Run it
+## Install
+
+On a Linux host with Docker (with the compose plugin), curl and openssl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rezztor/orchestrator/main/deploy/install.sh | bash
+```
+
+It asks for the model endpoint (any OpenAI-compatible URL ending in `/v1`; empty to set it later), then writes
+`./rezztor-orchestrator` with generated passwords and tokens and a self-signed certificate, pulls the images from
+`ghcr.io/rezztor/orchestrator-*`, starts them on port 443 and prints the sign-in for the first organisation's
+administrator, who enrols an authenticator on first sign-in. `ORCH_HTTPS_PORT`, `ORCH_ORG`, `ORCH_ADMIN`,
+`ORCH_MODEL_URL`, `ORCH_MODEL` and `ORCH_MODEL_KEY` set beforehand skip the questions. A model on the same host is
+reached as `host.docker.internal` (an Ollama there must listen on more than 127.0.0.1). Upgrade: set `ORCH_VERSION`
+in its `.env`, then `docker compose pull && docker compose up -d`.
+
+## Run it from source
 
 ```bash
 pip install -r requirements.txt -r requirements.dev.txt
@@ -109,8 +125,9 @@ Phase 6 hardening:
   docker compose run --rm migrate python -m orchestrator set-password <tenant-id> alice
   ```
 
-  A release: `scripts/build_release.sh v0.6.0 release.key` builds from the pushed tag in a fresh clone; the customer
-  runs `verify_release.sh RELEASE_DIR rezztor-release.pub`, then `docker load -i RELEASE_DIR/orchestrator-*-images.tar.gz`.
+  Pushing a tag `vX.Y.Z` runs the tests and publishes the four images to `ghcr.io/rezztor/orchestrator-*`
+  (`.github/workflows/release.yml`). For a site with no internet: `scripts/build_release.sh v0.7.0 release.key` builds
+  from the pushed tag in a fresh clone; the customer runs `verify_release.sh RELEASE_DIR rezztor-release.pub`, then `docker load -i RELEASE_DIR/orchestrator-*-images.tar.gz`.
 
 After the roadmap, the plan's remaining controls:
 
@@ -141,7 +158,7 @@ After the roadmap, the plan's remaining controls:
 - **The customer's own MCP servers**, read only: manifests in `ORCH_MCP_PLUGINS` (`deploy/mcp/`), described in
   `orchestrator/mcp.py`. Capabilities are `mcp.NAME.<...>`, bound to the tenants the manifest names.
 - **Skill evals**: a skill folder may hold `evals.yaml`; `python -m orchestrator eval` runs them with `evals/cases.yaml`.
-- **CI**: `.github/workflows/test.yml` runs the suite on a self-hosted runner labelled `orchestrator`.
+- **CI**: `.github/workflows/test.yml` runs the suite on every push, on GitHub's hosted runners.
 - **Decision records**: [`docs/decisions/`](docs/decisions/README.md).
 
 The Ansible executor is a separate service with its own Ansible inventory and credentials; the core sends it only a
@@ -171,7 +188,7 @@ Rezztor Orchestrator is free software under the GNU Affero General Public Licens
 You may run it in your enterprise and change it. If you run a modified version as a network service, you must offer
 its source to the people who use it.
 
-Every line is written by Rezztor Technologies; no code is taken from other projects. Builds signed by Rezztor,
-support, patches for supported releases and the integrations that come with them are part of the **Rezztor
-Enterprise** subscription. "Rezztor" and its logo are trademarks and are not licensed with the code: see
+Every line is written by Rezztor Technologies; no code is taken from other projects. Everything here, the images
+on GitHub's container registry included, is free to use; nothing is sold and no licence key is needed (decision
+0010). Questions and bugs go to the issues. "Rezztor" and its logo are trademarks and are not licensed with the code: see
 [TRADEMARKS.md](TRADEMARKS.md). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).

@@ -24,7 +24,7 @@ commit=$(git -C "$work/src" rev-parse HEAD)
 
 images=()
 for target in core ansible tofu postgres; do
-    image=rezztor/orchestrator-$target:$version
+    image=ghcr.io/rezztor/orchestrator-$target:$version  # the names compose.yaml pulls, so a loaded archive needs no pull
     docker build --pull --target "$target" --label "org.opencontainers.image.version=$version" \
         --label "org.opencontainers.image.revision=$commit" -t "$image" "$work/src"
     images+=("$image")

@@ -14,3 +14,4 @@ changes one adds a new record and marks the old one superseded; records are not 
 | [0007](0007-signed-releases-from-tags.md) | Releases built from a tag in a fresh clone and signed with Ed25519 | 2026-10-25 |
 | [0008](0008-mcp-read-only.md) | Customer MCP servers are read-only and bound to named tenants | 2026-10-25 |
 | [0009](0009-tenant-admin-on-the-page.md) | A tenant administrator manages the tenant from the page; secrets stay with the owner | 2026-10-26 |
+| [0010](0010-free-images-one-command.md) | Free and open source for now: images on GHCR and a one-command install | 2026-10-27 |

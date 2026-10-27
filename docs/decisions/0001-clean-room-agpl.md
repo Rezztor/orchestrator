@@ -1,6 +1,6 @@
 # 0001 Our own code only, AGPL-3.0 with a paid Enterprise subscription
 
-**Decided by** RIfky, 2026-10-25. **Status** accepted.
+**Decided by** RIfky, 2026-10-25. **Status** accepted; the paid subscription is superseded by [0010](0010-free-images-one-command.md).
 
 Rezztor Orchestrator is written from scratch in this repository. No code, prompts, tests or schemas are copied or
 adapted from any other project, Rezztor's own EAgent and netops-eagent included; other projects are studied for ideas
