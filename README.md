@@ -23,6 +23,10 @@ administrator, who enrols an authenticator on first sign-in. `ORCH_HTTPS_PORT`, 
 `ORCH_MODEL_URL`, `ORCH_MODEL` and `ORCH_MODEL_KEY` set beforehand skip the questions. A model on the same host is
 reached as `host.docker.internal` (an Ollama there must listen on more than 127.0.0.1). Upgrade: set `ORCH_VERSION`
 in its `.env`, then `docker compose pull && docker compose up -d`.
+Administration runs from that folder as `docker compose run --rm migrate python -m orchestrator COMMAND ...`; a
+command that reads a file needs it mounted, for example `-v "$PWD/policy.yaml:/tmp/p.yaml:ro"` and then `/tmp/p.yaml`.
+Webhook receivers behind an internal CA: put the CA bundle in `certs/` and `SSL_CERT_FILE=/certs/BUNDLE` in
+`secrets.env`.
 
 ## Run it from source
 

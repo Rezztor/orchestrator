@@ -212,3 +212,35 @@ def test_recipes_run_and_only_an_admin_decides_on_skills(site, monkeypatch):
     assert call(site, "/api/skills/decide", {"name": "vlan-audit", "approve": True}, cookie=oscar)[0] == 403
     assert call(site, "/api/skills/decide", {"name": "vlan-audit", "approve": True}, cookie=alice)[0] == 200
     assert call(site, "/api/library", cookie=oscar)[1]["skills"][0]["state"] == "approved"
+
+
+@pytest.mark.parametrize("server_class", [web.Server, __import__("executors.service").service.Server])
+def test_a_client_that_never_starts_tls_does_not_stall_the_others(server_class, tmp_path):
+    import shutil, socket, ssl, subprocess
+    from http.server import BaseHTTPRequestHandler
+    if not shutil.which("openssl"):
+        pytest.skip("needs openssl")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                    "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", tmp_path / "k", "-out", tmp_path / "c"],
+                   check=True, capture_output=True)
+
+    class Ok(BaseHTTPRequestHandler):
+        timeout = 60
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    server = server_class(("127.0.0.1", 0), Ok)
+    server.tls = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    server.tls.load_cert_chain(tmp_path / "c", tmp_path / "k")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    silent = socket.create_connection(("127.0.0.1", server.server_port))  # connects, never sends a ClientHello
+    try:
+        client = ssl.create_default_context(cafile=tmp_path / "c")
+        with urllib.request.urlopen(f"https://127.0.0.1:{server.server_port}/", context=client, timeout=5) as r:
+            assert r.status == 200
+    finally:
+        silent.close()
+        server.shutdown()
