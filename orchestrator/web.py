@@ -363,6 +363,9 @@ class Server(ThreadingHTTPServer):
         try:
             with self.tls.wrap_socket(request, server_side=True) as conn:
                 super().finish_request(conn, client_address)
+                # FIN after the answer, as socketserver does for plain sockets: a bare close with a body left unread
+                # resets the connection, and the client loses the answer (a 415 or 501) it was already sent
+                self.shutdown_request(conn)
         except OSError:  # a handshake that failed or never came
             pass
 

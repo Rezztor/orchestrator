@@ -216,7 +216,7 @@ def test_recipes_run_and_only_an_admin_decides_on_skills(site, monkeypatch):
 
 @pytest.mark.parametrize("server_class", [web.Server, __import__("executors.service").service.Server])
 def test_a_client_that_never_starts_tls_does_not_stall_the_others(server_class, tmp_path):
-    import shutil, socket, ssl, subprocess
+    import http.client, shutil, socket, ssl, subprocess
     from http.server import BaseHTTPRequestHandler
     if not shutil.which("openssl"):
         pytest.skip("needs openssl")
@@ -241,6 +241,10 @@ def test_a_client_that_never_starts_tls_does_not_stall_the_others(server_class, 
         client = ssl.create_default_context(cafile=tmp_path / "c")
         with urllib.request.urlopen(f"https://127.0.0.1:{server.server_port}/", context=client, timeout=5) as r:
             assert r.status == 200
+        # a refusal that leaves the body unread still reaches the client, not a reset in its place
+        c = http.client.HTTPSConnection("127.0.0.1", server.server_port, context=client, timeout=5)
+        c.request("PUT", "/", b"x" * 1000, {"Content-Type": "text/plain"})
+        assert c.getresponse().status == 501
     finally:
         silent.close()
         server.shutdown()
