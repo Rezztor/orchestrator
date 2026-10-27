@@ -1,15 +1,15 @@
-# The test suite on Rezztor's own runner (GitHub-hosted runners are not used). The runner needs Docker for the
-# PostgreSQL service and Python 3.12 or newer; register it on the repository with the label "orchestrator".
+# The test suite on GitHub's hosted runners (free for a public repository). Push only, never pull_request: outside
+# pull requests are closed (close-outside-prs.yml) and our own come from branches here, so their pushes are tested.
 name: test
-# Push only, never pull_request: the repository is public and a pull request from a fork would run its own code on
-# this runner. Our pull requests come from branches here, so their pushes are tested.
 on:
   push:
+    branches: ["**"]  # tags go through release.yml, which calls this
+  workflow_call:  # release.yml runs it before publishing images
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: [self-hosted, orchestrator]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
@@ -22,9 +22,12 @@ jobs:
         options: --health-cmd "pg_isready -U owner" --health-interval 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Install
         run: |
-          python3 -m venv .venv
+          python -m venv .venv
           .venv/bin/pip install -q -r requirements.txt -r requirements.dev.txt
       - name: Test
         env:
