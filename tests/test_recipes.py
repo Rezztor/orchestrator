@@ -62,3 +62,16 @@ def test_a_schedule_runs_once_when_due_and_survives_a_bad_one(acme, database):
                            (good,)).fetchone()
         assert row["later"]
     assert audit_kinds(acme)[-1] == "schedule.ran"
+
+
+def test_a_schedule_is_listed_and_removed_only_in_its_tenant(acme):
+    sid = recipes.schedule(acme, "alice", "site-devices", "alice", 60, {"site": "colombo", "platform": "ios"})
+    assert [r["id"] for r in recipes.schedules(acme)] == [sid]
+    other = db.create_tenant("globex", "gina")
+    with pytest.raises(LookupError):
+        recipes.unschedule(other, "gina", str(sid))
+    recipes.unschedule(acme, "alice", str(sid))
+    assert recipes.schedules(acme) == [] and recipes.run_due(chat=scripted()) == []
+    assert audit_kinds(acme)[-1] == "schedule.removed"
+    with pytest.raises(LookupError):
+        recipes.unschedule(acme, "alice", str(sid))

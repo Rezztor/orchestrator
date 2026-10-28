@@ -86,6 +86,20 @@ def schedule(tenant_id, actor, recipe, run_as, every_minutes, values):
     return schedule_id
 
 
+def schedules(tenant_id):
+    with db.tenant(tenant_id) as conn:
+        return conn.execute("SELECT id, recipe, params, run_as, every_minutes, next_run_at FROM schedules "
+                            "ORDER BY next_run_at").fetchall()
+
+
+def unschedule(tenant_id, actor, schedule_id):
+    with db.tenant(tenant_id) as conn:
+        row = conn.execute("DELETE FROM schedules WHERE id = %s RETURNING recipe, run_as", (schedule_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no schedule {schedule_id}")
+        db.audit(conn, actor, "schedule.removed", {"schedule": schedule_id, **row})
+
+
 def add_trigger(tenant_id, actor, recipe, run_as):
     """Give a recipe a secret address. Returns the path to give the other system: /hooks/TOKEN, shown only now."""
     with db.tenant(tenant_id) as conn:

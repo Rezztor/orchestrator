@@ -63,7 +63,7 @@ services:
       ORCH_ANCHOR_PUB: ${ORCH_ANCHOR_PUB:-}  # /keys/anchor.pub, for audit-verify
     env_file: [{path: ./secrets.env, required: false}]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    volumes: [./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
+    volumes: [./certs:/certs:ro, ./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
     networks: [back, out]
     depends_on:
       postgres: {condition: service_healthy}
@@ -87,7 +87,7 @@ services:
     environment:
       <<: *app-env
       ORCH_ANCHOR_KEY: ${ORCH_ANCHOR_KEY:-}  # /keys/anchor.key once ./keys holds one
-    volumes: [./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
+    volumes: [./certs:/certs:ro, ./keys:/keys:ro, ./mcp:/etc/orch/mcp:ro]
     networks: [back, out]
 
   siem:  # the owner role: it reads every tenant's ledger; a second copy waits as a standby
@@ -98,6 +98,7 @@ services:
       ORCH_DB_URL: postgresql://orch:${ORCH_DB_OWNER_PASSWORD}@postgres:5432/orch
       ORCH_SIEM_TARGET: ${ORCH_SIEM_TARGET:-}
       ORCH_SIEM_FORMAT: ${ORCH_SIEM_FORMAT:-json}
+    volumes: [./certs:/certs:ro]
     networks: [back, out]
 
   ansible:  # holds the device credentials (in ./ansible/inventory); the core never sees them

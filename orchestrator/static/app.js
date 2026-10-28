@@ -731,7 +731,7 @@ async function peopleScreen() {
         h("td", {}, ago(p.last_seen)),
         h("td", {}, p.authenticator && p.name !== me.user && sure("Reset authenticator", "Press again to reset", () =>
           api("/api/people/mfa-reset", { name: p.name }), `${p.name} adds a new authenticator at the next sign-in.`)))))),
-    directory && h("p", { class: "muted" }, "Your company directory signs people in; someone who signs in from it for the first time is added as a viewer.")),
+    directory && h("p", { class: "muted" }, "Your company directory signs people in. Add each person here first, with the same name the directory sends; the directory refuses anyone who isn't on this list.")),
     h("form", { class: "card", onsubmit: (e) => {
       e.preventDefault();
       act(e.submitter, () => api("/api/people/add", { name: name.value.trim(), role: role.value, password: password.value || undefined }), `${name.value.trim()} added.`);

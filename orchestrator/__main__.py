@@ -21,6 +21,8 @@
   recipe-add TENANT_ID NAME FILE                 YAML: description, prompt with {placeholders}
   recipe-run TENANT_ID USER NAME [KEY=VALUE ...]
   schedule-add TENANT_ID RECIPE USER MINUTES [KEY=VALUE ...]   run the recipe as USER every MINUTES (5 or more)
+  schedules TENANT_ID                            the tenant's schedules, the next one due first
+  schedule-remove TENANT_ID ID                   stop and delete a schedule
   trigger-add TENANT_ID RECIPE USER              prints the secret address that starts the recipe as USER
   scheduler                                      run due schedules and fail lost runs, forever
   webhook-add TENANT_ID teams|slack|json URL     post change and kill-switch events there
@@ -114,6 +116,12 @@ def main(argv):
             return 0 if state == "DONE" else 1
         case ["schedule-add", tenant_id, recipe, user, minutes, *pairs]:
             print(recipes.schedule(tenant_id, "cli", recipe, user, int(minutes), dict(p.split("=", 1) for p in pairs)))
+        case ["schedules", tenant_id]:
+            for row in recipes.schedules(tenant_id):
+                print(row["id"], row["recipe"], row["run_as"], f"every {row['every_minutes']} min",
+                      f"next {row['next_run_at']:%Y-%m-%d %H:%M %Z}", json.dumps(row["params"]))
+        case ["schedule-remove", tenant_id, schedule_id]:
+            recipes.unschedule(tenant_id, "cli", schedule_id)
         case ["scheduler"]:
             recipes.scheduler()
         case ["webhook-add", tenant_id, kind, url]:

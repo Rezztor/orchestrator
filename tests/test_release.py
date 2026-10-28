@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 VERIFY = Path(__file__).parent.parent / "scripts" / "verify_release.sh"
 pytestmark = pytest.mark.skipif(not shutil.which("openssl"), reason="needs openssl")
@@ -69,3 +70,12 @@ def test_installer_runs_only_once_fully_read():
     """Under curl | bash a docker compose run would swallow the unread rest of the script."""
     lines = (VERIFY.parent.parent / "deploy" / "install.sh").read_text().rstrip().splitlines()
     assert lines[-1] == 'main "$@"' and "main() {" in lines
+
+
+def test_every_core_service_sees_the_ca_bundle_in_certs():
+    """README: SSL_CERT_FILE=/certs/BUNDLE in secrets.env must resolve wherever a webhook or SIEM call is made."""
+    services = yaml.safe_load((VERIFY.parent.parent / "deploy" / "compose.yaml").read_text())["services"]
+    core = [n for n, s in services.items() if s.get("image", "").startswith("ghcr.io/rezztor/orchestrator-core")]
+    assert sorted(core) == ["migrate", "scheduler", "siem", "web"]
+    for name in core:
+        assert "./certs:/certs:ro" in services[name]["volumes"], name
